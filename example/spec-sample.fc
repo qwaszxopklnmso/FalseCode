@@ -7,8 +7,8 @@ Def Main() { //可以写argc,argv Def Main(argc -> int,argv -> string[])
 	Elif a==2?
 		Then In to a;
 		Out Nl; // Like cout << endl; in C++
-	Elif a==3 Then continue;
-	Else Then continue;
+	Elif a==3 Then pass;
+	Else Then pass;
 	Out a;
 	switch a {
 		Case 2? Then Break;

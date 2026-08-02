@@ -32,6 +32,7 @@ In to b[0];
 ## 字符串/字符同C++语法(""使用string,''使用char)
 ## 基本类型同C++
 - string,char,int,long,float,double,uint8_t,uint16_t,uint32_t,uint64_t,int8_t,int16_t,int32_t,int64_t ...
+- long long 可简写为 ll;unsigned long long 可简写为 ull
 ## 实现sizeof，同C++
 ## 函数定义使用：
 ```FalseCode
@@ -42,7 +43,7 @@ In to b[0];
 ## 程序开始
 - Def Main() {}
 ## 空语句
-- 使用Die/...
+- 使用Die/Pass/...
 ## 符号使用:
 -	==
 -	!=

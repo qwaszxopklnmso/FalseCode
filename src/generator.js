@@ -22,12 +22,18 @@ function gen(ast) {
   const arrays = new Map();
 
   // ---------------------------------------------------------------
-  //  token -> text with sane spacing
+  // token -> text with sane spacing (string/char literals masked so the
+  // spacing rules never rewrite inside them)
   function toText(tokens) {
+    const strs = [];
     let s = tokens.map((t) => t.value).join(' ');
+    s = s.replace(/(["'])(?:\\.|(?!\1).)*\1/g, (m) => {
+      strs.push(m);
+      return `\u0000${strs.length - 1}\u0000`;
+    });
     s = s.replace(/\s+/g, ' ');
     s = s.replace(/([\(\[])\s+/g, '$1');
-    s = s.replace(/\s+([\)\]\]])/g, '$1');
+    s = s.replace(/\s+([\)\]\}])/g, '$1');
     s = s.replace(/\s*([,;])\s*/g, '$1 ');
     // remove spaces around dot accessors
     s = s.replace(/\s*\.\s*/g, '.');
@@ -36,21 +42,131 @@ function gen(ast) {
     s = s.replace(/(\S)\s+\[/g, '$1[');
     s = s.replace(/\[\s+/g, '[');
     s = s.replace(/\s+\]/g, ']');
+    for (let i = 0; i < strs.length; i++) {
+      s = s.split(`\u0000${i}\u0000`).join(strs[i]);
+    }
     return s.trim();
   }
 
   function exp(tokens) {
     let s = toText(tokens);
+    // Protect string/char literals from operator rewrites below.
+    const strs = [];
+    s = s.replace(/(["'])(?:\\.|(?!\1).)*\1/g, (m) => {
+      strs.push(m);
+      return `\u0000${strs.length - 1}\u0000`;
+    });
     s = s.replace(/\.add\s*\(/g, '.push_back(');
-    s = s.replace(/\.remove\s*\([^()]*\)/g, '.pop_back()');
+    // `.remove(...)` -> `.pop_back()` (drop args, incl. nested parens)
+    s = s.replace(/\.remove\s*\(/g, '\u0001');
+    s = dropParenArgs(s);
     s = s.replace(/\.len\b/g, '.size()');
-    // power infix: `a ^^ b` -> `pow(a, b)`
-    s = s.replace(/([\w\.\[\]]+)\s*\^\^\s*([\w\.\(\)\d]+)/g, 'pow($1, $2)');
-    // set-to-zero `##`:  `a ## b ...` -> `(a = (b...))`? No: it's prefix/suffix lvalue
-    //   `## x`  -> `(x = 0)`, `x ##` -> `(x = 0)`
+    // power infix: `a ^^ b`, `(a+1) ^^ 2` -> `pow(...)`
+    s = convertPower(s);
+    // set-to-zero `##`: `## x` -> `(x = 0)`, `x ##` -> `(x = 0)`
     s = s.replace(/\s*##\s*([A-Za-z_][\w\.\[\]]*)/g, '($1 = 0)');
     s = s.replace(/([A-Za-z_][\w\.\[\]]*)\s+##/g, '($1 = 0)');
+    for (let i = 0; i < strs.length; i++) {
+      s = s.split(`\u0000${i}\u0000`).join(strs[i]);
+    }
     return s.trim();
+  }
+
+  // drop everything from each `\u0001` marker through its matching `)`
+  function dropParenArgs(s) {
+    let out = '';
+    let i = 0;
+    while (i < s.length) {
+      if (s[i] === '\u0001') {
+        let depth = 1;
+        i++;
+        while (i < s.length && depth > 0) {
+          if (s[i] === '(') depth++;
+          else if (s[i] === ')') depth--;
+          i++;
+        }
+        out += '.pop_back()';
+      } else {
+        out += s[i];
+        i++;
+      }
+    }
+    return out;
+  }
+
+  // balanced-paren aware `LHS ^^ RHS` -> `pow(LHS, RHS)`
+  function scanOperandStart(s, j) {
+    let i = j;
+    if (s[i] === ')') {
+      let depth = 0;
+      do {
+        if (s[i] === ')') depth++;
+        else if (s[i] === '(') depth--;
+        i--;
+      } while (i >= 0 && depth > 0);
+      return i + 1;
+    }
+    if (s[i] === ']') {
+      let depth = 0;
+      do {
+        if (s[i] === ']') depth++;
+        else if (s[i] === '[') depth--;
+        i--;
+      } while (i >= 0 && depth > 0);
+      return i + 1;
+    }
+    while (i >= 0 && /[\w\.]/.test(s[i])) i--;
+    return i + 1;
+  }
+
+  function scanOperandEnd(s, k) {
+    let j = k;
+    if (s[j] === '(') {
+      let depth = 0;
+      do {
+        if (s[j] === '(') depth++;
+        else if (s[j] === ')') depth--;
+        j++;
+      } while (j < s.length && depth > 0);
+      return j - 1;
+    }
+    if (s[j] === '[') {
+      let depth = 0;
+      do {
+        if (s[j] === '[') depth++;
+        else if (s[j] === ']') depth--;
+        j++;
+      } while (j < s.length && depth > 0);
+      return j - 1;
+    }
+    while (j < s.length && /[\w\.]/.test(s[j])) j++;
+    return j - 1;
+  }
+
+  function convertPower(s) {
+    const positions = [];
+    for (let i = 0; i + 1 < s.length; i++) {
+      if (s[i] === '^' && s[i + 1] === '^' && s[i + 2] !== '=') {
+        positions.push(i);
+      }
+    }
+    // replace right-to-left so earlier positions stay valid
+    for (let idx = positions.length - 1; idx >= 0; idx--) {
+      const i = positions[idx];
+      if (!(s[i] === '^' && s[i + 1] === '^')) continue;
+      let j = i - 1;
+      while (j >= 0 && s[j] === ' ') j--;
+      let k = i + 2;
+      while (k < s.length && s[k] === ' ') k++;
+      const lhsStart = j >= 0 ? scanOperandStart(s, j) : -1;
+      const rhsEnd = k < s.length ? scanOperandEnd(s, k) : -1;
+      if (lhsStart >= 0 && lhsStart <= j && rhsEnd >= k) {
+        s = s.slice(0, lhsStart) +
+          `pow(${s.slice(lhsStart, j + 1)}, ${s.slice(k, rhsEnd + 1)})` +
+          s.slice(rhsEnd + 1);
+      }
+    }
+    return s;
   }
 
   // raw transcription without expression rewrites
@@ -72,7 +188,13 @@ function gen(ast) {
 
   // ---------------------------------------------------------------
   //  Statement-level translation (assignment / declaration / custom ops)
-  const TYPE_WORD = /^(int|long|short|char|float|double|bool|void|string|auto|unsigned|signed|size_t|ll|u?int(8|16|32|64)_t|__int128|long\s+long)$/i;
+  const TYPE_WORD = /^(int|long|short|char|float|double|bool|void|string|auto|unsigned|signed|size_t|ll|ull|u?int(8|16|32|64)_t|__int128|long\s+long|unsigned\s+(char|short|int|long|long\s+long)(\s+int)?|signed\s+(char|short|int|long|long\s+long)(\s+int)?)$/i;
+
+  // normalize abbreviated type words to real C++ types
+  function typeCpp(s) {
+    return (s || '').replace(/\bull\b/gi, 'unsigned long long')
+      .replace(/\bll\b/gi, 'long long');
+  }
 
   function stmtCpp(tokens) {
     // `->` is a False Code type annotation only when followed by a type
@@ -102,16 +224,16 @@ function gen(ast) {
           if (eqIdx >= 0 && closeIdx < eqIdx && eqIdx < annIdx) {
             const initVal = expNoSemi(tokens.slice(eqIdx + 1, annIdx));
             arrays.set(name, { kind: 'fixed' });
-            return `${typeText2} ${name}[${size}] = {${initVal}};`;
+            return `${typeCpp(typeText2)} ${name}[${size}] = {${initVal}};`;
           }
           arrays.set(name, { kind: 'fixed' });
-          return `${typeText2} ${name}[${size}];`;
+          return `${typeCpp(typeText2)} ${name}[${size}];`;
         }
         arrays.set(name, { kind: 'vector' });
         if (eqIdx >= 0 && eqIdx < annIdx) {
           throw new Error(`dynamic array '${name}[]' cannot take an initializer ('= ${expNoSemi(tokens.slice(eqIdx + 1, annIdx))}')`);
         }
-        return `vector<${typeText2}> ${name};`;
+        return `vector<${typeCpp(typeText2)}> ${name};`;
       }
 
       // `x = value -> T`
@@ -119,12 +241,12 @@ function gen(ast) {
         const lhs = tokens.slice(0, eqIdx).map((t) => t.value).join('');
         const val = expNoSemi(tokens.slice(eqIdx + 1, annIdx));
         arrays.delete(lhs);
-        return `${typeText2} ${lhs} = ${val};`;
+        return `${typeCpp(typeText2)} ${lhs} = ${val};`;
       }
       // `x -> T`
       const lhs = tokens.slice(0, annIdx).map((t) => t.value).join('');
       arrays.delete(lhs);
-      return `${typeText2} ${lhs};`;
+      return `${typeCpp(typeText2)} ${lhs};`;
     }
 
     // -------- custom single operators --------
@@ -167,7 +289,7 @@ function gen(ast) {
   function headDecl(tokens) {
     const ann = tokens.findIndex((t) => t.value === '->');
     if (ann >= 0) {
-      const type = tokens.slice(ann + 1).map((t) => t.value).join(' ').trim();
+      const type = typeCpp(tokens.slice(ann + 1).map((t) => t.value).join(' ').trim());
       const before = tokens.slice(0, ann);
       const eq = before.findIndex((t) => t.value === '=');
       const name = before.slice(0, eq).map((t) => t.value).join('');
@@ -190,14 +312,30 @@ function gen(ast) {
     return out;
   }
 
+  // bodies that must be scanned when a `Return` might hide inside
+  function childBodies(s) {
+    switch (s.kind) {
+      case 'if':
+        return [s.then, s.els ? s.els.stmts : null,
+          ...s.elifs.map((e) => e.then)].filter(Boolean);
+      case 'while':
+      case 'for':
+        return [s.body];
+      case 'switch':
+        return s.body.map((c) => c.body).filter(Boolean);
+      case 'block':
+        return [s.stmts];
+      case 'stmt':
+        return s.body ? [s.body] : [];
+      default:
+        return [];
+    }
+  }
+
   function hasReturn(stmts) {
     for (const s of stmts) {
       if (s.kind === 'return') return true;
-      if (s.kind === 'if') {
-        for (const a of [s.then, ...s.elifs.map((e) => e.then)]) {
-          if (hasReturn(a)) return true;
-        }
-      }
+      if (childBodies(s).some(hasReturn)) return true;
     }
     return false;
   }
@@ -205,11 +343,7 @@ function gen(ast) {
   function hasReturnValue(stmts) {
     for (const s of stmts) {
       if (s.kind === 'return' && s.tokens.length) return true;
-      if (s.kind === 'if') {
-        for (const a of [s.then, ...s.elifs.map((e) => e.then)]) {
-          if (hasReturnValue(a)) return true;
-        }
-      }
+      if (childBodies(s).some(hasReturnValue)) return true;
     }
     return false;
   }
@@ -221,10 +355,18 @@ function gen(ast) {
   }
 
   // True when `tokens[zeroIdx]` is a statement-level `##`, not one embedded
-  // in a bigger expression (i.e. everything before it is a plain lvalue).
+  // in a bigger expression (i.e. everything before it is a plain lvalue and
+  // nothing follows it). `a## + b;` therefore falls through to `exp()`.
   function isPureLvalueCtx(tokens, zeroIdx) {
-    if (zeroIdx === 0) return true; // `## x` prefix
+    if (zeroIdx === 0) {
+      // `## x` prefix form needs a single plain target and nothing else
+      const rest = tokens.slice(1);
+      return rest.length > 0 && rest.every((t) =>
+        t.value === ';' || /^[A-Za-z_][A-Za-z_0-9]*$/.test(t.value));
+    }
     const pre = tokens.slice(0, zeroIdx);
+    const post = tokens.slice(zeroIdx + 1);
+    if (post.some((t) => t.value !== ';')) return false;
     if (pre.some((t) => t.value === '**')) return false;
     return pre.every((t) =>
       /^[A-Za-z_][A-Za-z_0-9]*$/.test(t.value) || t.value === '.');
@@ -310,7 +452,7 @@ function gen(ast) {
           genBlock(node.body, indent + 1);
           emit(`${p}}`);
         } else {
-          emit(`${p}${stmtCpp(node.tokens)}`);
+          emit(`${p}${stmtCpp(squeezeSemi(node.tokens))}`);
         }
         return;
       }
@@ -425,7 +567,7 @@ function gen(ast) {
       }
       case 'def': {
         const isMain = node.name.toLowerCase() === 'main';
-        const plainType = (s) => (s || '').replace(/\[[^\]]*\]/g, '').trim();
+        const plainType = (s) => typeCpp((s || '').replace(/\[[^\]]*\]/g, '').trim());
         const params = node.params.map((pp) => {
           if (pp.name === 'argc') return 'int argc';
           if (pp.name === 'argv') return 'char** argv';
@@ -443,7 +585,7 @@ function gen(ast) {
         const ret = isMain
           ? 'int'
           : (node.ret.length
-            ? expNoSemi(node.ret)
+            ? typeCpp(expNoSemi(node.ret))
             : (hasReturnValue(node.body) ? 'int' : 'void'));
         const fname = isMain ? 'main' : node.name;
         emit(`${p}${ret} ${fname}(${params}) {`);

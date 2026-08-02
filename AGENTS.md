@@ -45,3 +45,8 @@
 ## Working style
 
 Keep this a self-contained project. Work against documented C++ output correctness, and update `First.md` if the spec needs amending while implementing edge cases.
+
+## Rules
+
+- Speak Chinese no matter what language I say.
+- List Bugs before Fix bugs. (List -> wait-ask -> Fix)

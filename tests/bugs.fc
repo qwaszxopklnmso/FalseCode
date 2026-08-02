@@ -1,0 +1,74 @@
+def Square(a -> int) -> int {
+	Return a * a;
+}
+
+def LoopRet():
+	x = 0 -> int;
+	While true {
+		x = x + 1;
+		If x > 3 Then Return x;
+	}
+
+Def Main() {
+	x = 1 -> int;
+	If (x == 1) ?
+		Out "if-paren";
+		Out Nl;
+	Elif (x == 2) ? Then Out "no";
+	Else Then Out "no";
+
+	While (x > 0) {
+		x = x - 1;
+	}
+	Out x;
+	Out Nl;
+
+	n = 0 -> int;
+	While Square(n) < 10 {
+		n = n + 1;
+	}
+	Out n;
+	Out Nl;
+
+	For i = 0 -> int; i < Square(3); ++i {
+		Out i;
+	}
+	Out Nl;
+
+	u = 5 -> ull;
+	Out u;
+	Out Nl;
+
+	h = 0x1F -> int;
+	Out h;
+	Out Nl;
+
+	Out "a ^^ b";
+	Out Nl;
+	Out "x ## y";
+	Out Nl;
+	Out "v.add(1)";
+	Out Nl;
+	Out "v.len";
+	Out Nl;
+
+	v[] -> int;
+	v.add(1);
+	v.add(2);
+	v.remove(Square(1));
+	Out v.len;
+	Out Nl;
+
+	a = 2 -> int;
+	y = (a + 1) ^^ 2 -> int;
+	Out y;
+	Out Nl;
+
+	a## + 1;
+	Out a;
+	Out Nl;
+
+	Out LoopRet();
+	Out Nl;
+	Return 0;
+}

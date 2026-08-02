@@ -131,7 +131,8 @@ function parse(sourceText) {
     switch (k) {
       case 'break': return { kind: 'break' };
       case 'continue': return { kind: 'continue' };
-      case 'die': return { kind: 'empty' };
+      case 'die':
+      case 'pass': return { kind: 'empty' };
       case 'return': return { kind: 'return', tokens: rest };
       case 'out':
       case 'output': return { kind: 'out', tokens: rest };
@@ -143,9 +144,8 @@ function parse(sourceText) {
   // strip wrapping parentheses from a bare-expression token list
   function unparen(tokens) {
     const w = words(tokens);
-    if (w.length && w[0].value === '(' && lastTokenIs(')')) {
-      const t = w.slice(1, -1);
-      return t;
+    if (w.length && w[0].value === '(' && lastOf(w).value === ')') {
+      return w.slice(1, -1);
     }
     return w;
   }
@@ -253,7 +253,8 @@ function parse(sourceText) {
       case 'in': stmts.push({ kind: 'input', tokens: stripSemi(toks.slice(1)) }); return;
       case 'break': stmts.push({ kind: 'break' }); return;
       case 'continue': stmts.push({ kind: 'continue' }); return;
-      case 'die': stmts.push({ kind: 'empty' }); return;
+      case 'die':
+      case 'pass': stmts.push({ kind: 'empty' }); return;
       default: {
         if (hasOpen(line)) {
           const head = stripSemi(toks).filter((t) => t.value !== '{' && t.value !== '}');
@@ -350,13 +351,15 @@ function parse(sourceText) {
   // ---------------------------- For / While --------------------------
   function parseFor(l, stmts) {
     let toks = words(l.tokens).slice(1);
-    const { inner, tail } = parenSplit(toks);
     let parts, bodyTail;
-    if (inner.length) {
+    if (toks.length && toks[0].value === '(') {
+      // parenthesized C-style header: `For (i = 0 -> int; i < 4; ++i) {`
+      const { inner, tail } = parenSplit(toks);
       parts = splitSemi(inner);
       bodyTail = tail;
     } else {
-      // bare header (no parentheses): `For i = 0 -> int; ++i < 5; ++i {`
+      // bare header (no leading parentheses):
+      // `For i = f(1); i < 5; ++i {` — parens may still appear in calls
       const braceIdx = toks.findIndex((t) => t.value === '{');
       const head = braceIdx >= 0 ? toks.slice(0, braceIdx) : toks;
       parts = splitSemi(head);
@@ -374,13 +377,14 @@ function parse(sourceText) {
 
   function parseWhile(l, stmts) {
     const toks = words(l.tokens).slice(1);
-    const { inner, tail } = parenSplit(toks);
     let cond, bodyTail;
-    if (inner.length) {
+    if (toks.length && toks[0].value === '(') {
+      // parenthesized: `While (x < n) {` / `While (true)`
+      const { inner, tail } = parenSplit(toks);
       cond = inner;
       bodyTail = tail;
     } else {
-      // bare: `while x < n {` / `while true` / `while x?`
+      // bare: `while x < n {` / `while true` / `while f(x) < n {`
       const stop = toks.findIndex((t) =>
         t.value === '{' || t.value === '?' ||
         t.value.toLowerCase() === 'then');
@@ -527,7 +531,12 @@ function parse(sourceText) {
     }
     let cond, inline = null;
     if (thenIdx >= 0) {
-      cond = unparen(w.slice(0, thenIdx));
+      let condToks = w.slice(0, thenIdx);
+      // a `?` before `Then` is the header terminator, not a ternary
+      if (condToks.length && lastOf(condToks).value === '?') {
+        condToks = condToks.slice(0, -1);
+      }
+      cond = unparen(condToks);
       inline = emitSingle(w.slice(thenIdx + 1));
     } else {
       cond = unparen(w.slice(0, end));

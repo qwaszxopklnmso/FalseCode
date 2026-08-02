@@ -106,10 +106,20 @@ function tokenizeLine(line) {
     }
     if (isDigit(c) || (c === '.' && i + 1 < n && isDigit(line[i + 1]))) {
       let j = i;
-      while (j < n && (isDigit(line[j]) || line[j] === '.' ||
-             line[j] === 'e' || line[j] === 'E' ||
-             ((line[j] === '+' || line[j] === '-') && j > i &&
-              (line[j - 1] === 'e' || line[j - 1] === 'E')))) j++;
+      if (c === '0' && (line[i + 1] === 'x' || line[i + 1] === 'X')) {
+        // hex literal: 0x1F, 0x3f3f3f3f
+        j = i + 2;
+        while (j < n && /[0-9a-fA-F]/.test(line[j])) j++;
+      } else if (c === '0' && (line[i + 1] === 'b' || line[i + 1] === 'B')) {
+        // binary literal: 0b101
+        j = i + 2;
+        while (j < n && /[01]/.test(line[j])) j++;
+      } else {
+        while (j < n && (isDigit(line[j]) || line[j] === '.' ||
+               line[j] === 'e' || line[j] === 'E' ||
+               ((line[j] === '+' || line[j] === '-') && j > i &&
+                (line[j - 1] === 'e' || line[j - 1] === 'E')))) j++;
+      }
       tokens.push({ type: TOKEN_TYPES.NUM, value: line.slice(i, j) });
       i = j;
       continue;
