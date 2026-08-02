@@ -1,0 +1,29 @@
+Def Main() {
+	i[10]=0->int;
+	Out i[0] + i[5] + i[9];
+	Out Nl;
+	i##;
+	Out i[0] + i[5] + i[9];
+	Out Nl;
+
+	fixed[3] -> int;
+	fixed[0] = 5;
+	fixed[1] = 6;
+	fixed[2] = 7;
+	fixed##;
+	Out fixed[0] + fixed[1] + fixed[2];
+	Out Nl;
+
+	v[] -> int;
+	v.add(5);
+	v.add(6);
+	v##;
+	Out v[0] + v[1];
+	Out Nl;
+
+	##i;
+	Out i[0];
+	Out Nl;
+
+	Return 0;
+}

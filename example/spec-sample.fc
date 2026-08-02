@@ -1,0 +1,29 @@
+Def Main() { //可以写argc,argv Def Main(argc -> int,argv -> string[])
+	a=1 -> int;
+	b=2 -> long;
+	If a == 1?
+		Then Output "Hello World";
+		Out Nl;
+	Elif a==2?
+		Then In to a;
+		Out Nl; // Like cout << endl; in C++
+	Elif a==3 Then continue;
+	Else Then continue;
+	Out a;
+	switch a {
+		Case 2? Then Break;
+		Case 0?
+			Out 1;
+	}
+	F=1 -> float;
+	For (i = 0 -> int; ++i<100; ++i) { // Like C++
+		a |= 1; // Or
+		a ^^= 1; // Pow
+		a ^= 1; // Xor
+		a %= 1; // Mod
+	}
+	While (true)
+	Then break;
+
+	Return 0;
+}

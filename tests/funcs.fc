@@ -1,0 +1,14 @@
+Def Add(a -> int, b -> int) -> int:
+	Return a + b;
+
+Def Mul(a -> int, b -> int):
+	Return a * b;
+
+Def Main():
+	n = 0 -> int;
+	n = Add(20, 22);
+	Out n;
+	Out Nl;
+	Out Mul(6, 7);
+	Out Nl;
+	Return 0;

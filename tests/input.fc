@@ -1,0 +1,16 @@
+Def Main() {
+	a = 0 -> int;
+	b = 0 -> int;
+	array[] -> int;
+	array.add(1);
+	array.add(2);
+	array.add(0);
+	In to a, b, array[2];
+	Out a;
+	Out Nl;
+	Out b;
+	Out Nl;
+	Out array[2];
+	Out Nl;
+	Return 0;
+}

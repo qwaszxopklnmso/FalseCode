@@ -1,0 +1,36 @@
+Def Main() {
+	x = 3 -> int;
+
+	If x == 1 ?
+		Out "one";
+		Out Nl;
+	Elif x == 2 Then Out "two";
+	Elif x == 3 ?
+		Out "three";
+		Out Nl;
+	Else Then Out "other";
+
+	Out "after-if";
+	Out Nl;
+
+	For (i = 0 -> int; i < 4; ++i) {
+		Out i;
+	}
+	Out Nl;
+
+	Switch x {
+		Case 1? Then Out "1";
+		Case 3?
+			Out "three-switch";
+			Out Nl;
+	}
+
+	w = 0 -> int;
+	While w < 3 {
+		w = w + 1;
+	}
+	Out w;
+	Out Nl;
+
+	Return 0;
+}

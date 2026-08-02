@@ -1,0 +1,5 @@
+node_modules/
+*.exe
+*.out
+*.in
+*.cpp

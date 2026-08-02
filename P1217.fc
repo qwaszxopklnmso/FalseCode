@@ -1,0 +1,41 @@
+def MakePal(x -> int) -> int {
+	r = x -> int;
+	t = x / 10 -> int;
+	While t > 0 {
+		r = r * 10 + t % 10;
+		t = t / 10;
+	}
+	Return r;
+}
+
+def IsPrime(x -> int) -> bool {
+	If x < 2 Then Return false;
+	i = 2 -> int;
+	While i * i <= x {
+		If x % i == 0 Then Return false;
+		i = i + 1;
+	}
+	Return true;
+}
+
+Def Main() {
+	freopen("P1217.in", "r", stdin);
+	freopen("P1217.out", "w", stdout);
+	a = 0 -> int;
+	b = 0 -> int;
+	In to a, b;
+	prefix = 1 -> int;
+	While prefix <= 9 {
+		pal = MakePal(prefix) -> int;
+		If pal >= a && pal <= b && IsPrime(pal) Then Out pal, Nl;
+		prefix = prefix + 1;
+	}
+	If 11 >= a && 11 <= b Then Out 11, Nl;
+	prefix = 10;
+	While prefix <= 9999 {
+		pal = MakePal(prefix) -> int;
+		If pal >= a && pal <= b && IsPrime(pal) Then Out pal, Nl;
+		prefix = prefix + 1;
+	}
+	Return 0;
+}

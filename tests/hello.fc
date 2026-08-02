@@ -1,0 +1,7 @@
+Def Main() {
+	Out "hello, false code";
+	Out Nl;
+	Out 42;
+	Out Nl;
+	Return 0;
+}

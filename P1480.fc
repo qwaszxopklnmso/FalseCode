@@ -1,0 +1,27 @@
+Def Main() {
+	freopen("P1480.in", "r", stdin);
+	freopen("P1480.out", "w", stdout);
+	s = "" -> string;
+	b = 0 -> int;
+	In to s, b;
+	len = s.size() -> int;
+	ans[5005] -> int;
+	rem = 0 -> long long;
+	For (i = 0 -> int; i < len; ++i) {
+		rem = rem * 10 + (s[i] - '0');
+		ans[i] = rem / b;
+		rem = rem % b;
+	}
+	pos = 0 -> int;
+	While pos < len && ans[pos] == 0 {
+		pos = pos + 1;
+	}
+	If pos == len Then Out 0;
+	Else {
+		For (i = pos -> int; i < len; ++i) {
+			Out ans[i];
+		}
+	}
+	Out Nl;
+	Return 0;
+}

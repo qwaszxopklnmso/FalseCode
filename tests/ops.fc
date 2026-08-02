@@ -1,0 +1,34 @@
+Def Main() {
+	p = 2 -> long;
+	q = 10 -> long;
+	p ^^= q;
+	Out p;
+	Out Nl;
+
+	e = 10 -> int;
+	e = e / 4;
+	Out e;
+	Out Nl;
+
+	d = 1 -> int;
+	d ~= 0;
+	Out d;
+	Out Nl;
+
+	f = 5 -> int;
+	f ##;
+	Out f;
+	Out Nl;
+
+	g = 6 -> int;
+	g ^= 3;
+	Out g;
+	Out Nl;
+
+	m = 7 -> int;
+	m %= 4;
+	Out m;
+	Out Nl;
+
+	Return 0;
+}

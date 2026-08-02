@@ -1,0 +1,31 @@
+Def Main() {
+	v[] -> int;
+	v.add(1);
+	v.add(2);
+	v.add(3);
+	Out v.len;
+	Out Nl;
+	v.remove(2);
+	Out v.len;
+	Out Nl;
+	Out v[0] + v[1];
+	Out Nl;
+
+	fix[3] -> int;
+	fix[0] = 5;
+	fix[1] = 6;
+	fix[2] = 7;
+	Out fix[0] * fix[1] + fix[2];
+	Out Nl;
+
+	s = "abcd" -> string;
+	c = 'Z' -> char;
+	Out s;
+	Out Nl;
+	Out c;
+	Out Nl;
+	Out sizeof(int);
+	Out Nl;
+
+	Return 0;
+}

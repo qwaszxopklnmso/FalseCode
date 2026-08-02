@@ -1,0 +1,15 @@
+{
+  "name": "falsecode",
+  "version": "0.1.0",
+  "description": "False Code transpiler: pseudo-code -> C++",
+  "main": "src/main.js",
+  "bin": {
+    "falsecode": "bin/fc.js"
+  },
+  "type": "commonjs",
+  "scripts": {
+    "transpile": "node src/main.js",
+    "test": "node tests/run.js"
+  },
+  "license": "MIT"
+}
