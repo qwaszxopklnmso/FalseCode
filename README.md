@@ -15,7 +15,14 @@ node src/main.js hello.fc out.cpp  # 指定输出路径
 node tests/run.js
 ```
 
-> Windows 提示:`npm test` 可能被 PowerShell 执行策略拦截(`npm.ps1` 被禁),请直接运行 `node tests/run.js`。
+> Windows / PowerShell 提示:PowerShell 的默认执行策略会拦截 npm 的 `.ps1` 包装脚本(表现为 `npm test` 报 "无法加载 npm.ps1"),但 `.cmd` 版本不受影响。在本机验证可行的两种方式:
+>
+> 1. 直接调用 `.cmd` 版本:`npm.cmd test`、`falsecode.cmd <in.fc>`
+> 2. 放开当前用户的脚本执行策略(推荐,之后 `npm`/`falsecode` 都能直接用):
+>    ```powershell
+>    Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+>    ```
+>    无需管理员权限;查看当前策略:`Get-ExecutionPolicy -Scope CurrentUser`。
 
 ## 安装为全局命令
 
@@ -25,6 +32,8 @@ node tests/run.js
 npm link
 falsecode hello.fc          # 等价于 node src/main.js hello.fc
 ```
+
+`npm link` 会在全局目录生成 `falsecode.cmd` / `falsecode.ps1` 等包装脚本(本机为 `C:\Users\<用户名>\AppData\Roaming\npm\`)。命令名特意取 `falsecode` 而非 `fc`,因为 PowerShell 内置了 `fc` 这个别名。
 
 ## 在新电脑上使用(clone 后)
 
@@ -64,3 +73,7 @@ First.md     语言规范(唯一权威参考)
 - C++ 语法可直接透传:`#define`、`struct {}`、`std::cout`、`p->x`、三元 `?:` 等
 
 完整规范见 [`First.md`](First.md),实现细节见 [`AGENTS.md`](AGENTS.md)。
+
+---
+
+AI 制作提示:本项目由 **DeepSeek** 辅助开发与维护。
