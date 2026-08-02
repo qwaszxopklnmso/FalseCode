@@ -140,6 +140,17 @@ function gen(ast) {
       return j - 1;
     }
     while (j < s.length && /[\w\.]/.test(s[j])) j++;
+    // swallow immediately-following call/subscript groups: `f(x)`, `arr[i]`
+    while (j < s.length && (s[j] === '(' || s[j] === '[')) {
+      const open = s[j];
+      const close = open === '(' ? ')' : ']';
+      let depth = 0;
+      do {
+        if (s[j] === open) depth++;
+        else if (s[j] === close) depth--;
+        j++;
+      } while (j < s.length && depth > 0);
+    }
     return j - 1;
   }
 
@@ -197,6 +208,17 @@ function gen(ast) {
   }
 
   function stmtCpp(tokens) {
+    // a declaration LHS must be exactly one identifier token:
+    // `a[] -> T;`, `x = v -> T;`, `p = &y -> int*;`. Anything else
+    // (e.g. C-style prefix `int a[][] -> int;`) is an error, not noise.
+    const declName = (slice) => {
+      const w = slice.filter((t) => t.type === 'word');
+      if (slice.length !== 1 || w.length !== 1) {
+        throw new Error(`invalid declaration name '${slice.map((t) => t.value).join('')}': use 'name = value -> type;' or 'name -> type;'`);
+      }
+      return w[0].value;
+    };
+
     // `->` is a False Code type annotation only when followed by a type
     // keyword (pointers `int*` allowed); otherwise it is plain C++ member
     // access (`p->x`).
@@ -212,39 +234,58 @@ function gen(ast) {
       const typeText2 = typeTok.filter((t) => t.value !== '[' && t.value !== ']')
         .map((t) => t.value).join(' ');
 
-      // open or sized array: `a[] -> T` / `a[N] -> T`  (or `a[...][...]`)
+      // open or sized array: `a[] -> T` / `a[N] -> T` / `a[N][M] -> T`
+      // (the `[` must be part of the declarator — before `=`, so `x = a[0] -> T;` stays scalar)
       const arrIdx = tokens.findIndex((t) => t.value === '[');
-      if (arrIdx >= 0) {
-        const name = tokens.slice(0, arrIdx).map((t) => t.value).join('');
-        const closeIdx = tokens.findIndex((t) => t.value === ']');
-        const sizeTok = tokens.slice(arrIdx + 1, closeIdx);
-        if (sizeTok.length) {
-          const size = expNoSemi(sizeTok);
-          // `i[10]=0->int;` -> `int i[10] = {0};`
-          if (eqIdx >= 0 && closeIdx < eqIdx && eqIdx < annIdx) {
-            const initVal = expNoSemi(tokens.slice(eqIdx + 1, annIdx));
-            arrays.set(name, { kind: 'fixed' });
-            return `${typeCpp(typeText2)} ${name}[${size}] = {${initVal}};`;
+      if (arrIdx >= 0 && (eqIdx < 0 || arrIdx < eqIdx)) {
+        const name = declName(tokens.slice(0, arrIdx));
+        // collect every dimension pair: `a[2][3]` -> sizes ['2','3']
+        const dims = [];
+        let ti = arrIdx;
+        while (ti < tokens.length && tokens[ti].value === '[') {
+          let depth = 0;
+          let close = -1;
+          for (let k = ti; k < tokens.length; k++) {
+            if (tokens[k].value === '[') depth++;
+            else if (tokens[k].value === ']') {
+              depth--;
+              if (depth === 0) { close = k; break; }
+            }
           }
-          arrays.set(name, { kind: 'fixed' });
-          return `${typeCpp(typeText2)} ${name}[${size}];`;
+          if (close < 0) break;
+          dims.push(tokens.slice(ti + 1, close));
+          ti = close + 1;
         }
-        arrays.set(name, { kind: 'vector' });
+        const allSizes = dims.map((d) => expNoSemi(d));
+        const openDim = dims.some((d) => d.length === 0);
+        if (openDim) {
+          // open dimension: `v[]` -> vector, `v[][]` -> vector<vector<...>>
+          arrays.set(name, { kind: 'vector' });
+          if (eqIdx >= 0 && eqIdx < annIdx) {
+            throw new Error(`dynamic array '${name}[]' cannot take an initializer ('= ${expNoSemi(tokens.slice(eqIdx + 1, annIdx))}')`);
+          }
+          const openCount = dims.filter((d) => d.length === 0).length;
+          return `${'vector<'.repeat(openCount)}${typeCpp(typeText2)}${'>'.repeat(openCount)} ${name};`;
+        }
+        arrays.set(name, { kind: 'fixed' });
+        const sizeSuffix = allSizes.map((s) => `[${s}]`).join('');
+        // `i[10]=0->int;` -> `int i[10] = {0};`
         if (eqIdx >= 0 && eqIdx < annIdx) {
-          throw new Error(`dynamic array '${name}[]' cannot take an initializer ('= ${expNoSemi(tokens.slice(eqIdx + 1, annIdx))}')`);
+          const initVal = expNoSemi(tokens.slice(eqIdx + 1, annIdx));
+          return `${typeCpp(typeText2)} ${name}${sizeSuffix} = {${initVal}};`;
         }
-        return `vector<${typeCpp(typeText2)}> ${name};`;
+        return `${typeCpp(typeText2)} ${name}${sizeSuffix};`;
       }
 
       // `x = value -> T`
       if (eqIdx >= 0 && eqIdx < annIdx) {
-        const lhs = tokens.slice(0, eqIdx).map((t) => t.value).join('');
+        const lhs = declName(tokens.slice(0, eqIdx));
         const val = expNoSemi(tokens.slice(eqIdx + 1, annIdx));
         arrays.delete(lhs);
         return `${typeCpp(typeText2)} ${lhs} = ${val};`;
       }
       // `x -> T`
-      const lhs = tokens.slice(0, annIdx).map((t) => t.value).join('');
+      const lhs = declName(tokens.slice(0, annIdx));
       arrays.delete(lhs);
       return `${typeCpp(typeText2)} ${lhs};`;
     }
@@ -287,7 +328,12 @@ function gen(ast) {
 
   // -------- for-head => C++ fragment --------
   function headDecl(tokens) {
-    const ann = tokens.findIndex((t) => t.value === '->');
+    // `->` is a type annotation only when followed by a type keyword
+    // (same rule as stmtCpp); otherwise it is `p->x` member access.
+    const ann = tokens.findIndex((t, i) =>
+      t.value === '->' && TYPE_WORD.test(tokens.slice(i + 1)
+        .filter((x) => x.value !== '[' && x.value !== ']' && x.value !== '*')
+        .map((x) => x.value).join(' ')));
     if (ann >= 0) {
       const type = typeCpp(tokens.slice(ann + 1).map((t) => t.value).join(' ').trim());
       const before = tokens.slice(0, ann);
@@ -386,7 +432,8 @@ function gen(ast) {
         const parts = args.map((a) => {
           const t = a.map((t) => t.value).join(' ').trim();
           if (/^\s*nl\s*$/i.test(t)) return 'endl';
-          return exp(a);
+          // wrap: `cout << a & b` would parse as `(cout << a) & b`
+          return `(${exp(a)})`;
         });
         return parts.length ? `cout << ${parts.join(' << ')}` : null;
       }
@@ -469,7 +516,8 @@ function gen(ast) {
         const parts = args.map((a) => {
           const t = a.map((t) => t.value).join(' ').trim();
           if (/^\s*nl\s*$/i.test(t)) return 'endl';
-          return exp(a);
+          // wrap: `cout << a & b` would parse as `(cout << a) & b`
+          return `(${exp(a)})`;
         });
         if (parts.length) emit(`${p}cout << ${parts.join(' << ')};`);
         return;

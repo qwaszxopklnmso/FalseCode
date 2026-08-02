@@ -12,6 +12,7 @@
 - 	Out a,b,c,d... 
 -   用','分割
 -	NL/Nl/nl/nL:换行
+-	参数可以是任意表达式(如 Out a & b;、Out a ? b : c;)
 ## In/Input(都行) : Input 语法
 - 	In to a,b,c...
 -   getchar同C++语法
@@ -19,10 +20,12 @@
 - 	变量名=数值->类型; 等号可以省略(变量名->类型;)
 -   不可以重名
 ## 数组使用：
-- 同C++	
+- 同C++，支持多维定长数组：a[N][M] -> T;
 ```False Code
-a[] -> int; //Vector
+a[] -> int; // Vector
+
 b[10] -> char; //Array
+c[2][3] -> int; //多维定长数组,同C++ b[2][3]
 a.add(1); //pushback
 a.remove(0); //popback
 Out a.len // 获取数组长度
@@ -72,8 +75,8 @@ Def Main() { //可以写argc,argv Def Main(argc -> int,argv -> string[])
 	Elif a==2?
 		Then In to a;
 		Out Nl; // Like cout << endl; in C++
-	Elif a==3 Then continue;
-	Else Then continue;
+	Elif a==3 Then pass;
+	Else Then pass;
 	Out a;
 	switch a {
 		Case 2? Then Break;

@@ -256,9 +256,11 @@ function parse(sourceText) {
       case 'die':
       case 'pass': stmts.push({ kind: 'empty' }); return;
       default: {
-        if (hasOpen(line)) {
+        const last = lastOf(toks);
+        if (last && (last.value === '{' || last.value === '}')) {
+          // trailing `{`/`}` only: `x = 1; { y = 2; }` or `f() {` + indented body
           const head = stripSemi(toks).filter((t) => t.value !== '{' && t.value !== '}');
-          stmts.push({ kind: 'stmt', tokens: head, body: hasClose(line) ? [] : readBlock(line.indent) });
+          stmts.push({ kind: 'stmt', tokens: head, body: last.value === '}' ? [] : readBlock(line.indent) });
         } else {
           stmts.push({ kind: 'stmt', tokens: stripSemi(toks) });
         }

@@ -70,5 +70,16 @@ Def Main() {
 
 	Out LoopRet();
 	Out Nl;
+
+	m[2][3] -> int;
+	m[1][2] = 9;
+	Out m[1][2];
+	Out Nl;
+	Out 6 & 3;
+	Out Nl;
+	Out 1 == 1 ? "y" : "n";
+	Out Nl;
+	Out 2 ^^ 3 ^^ 2;
+	Out Nl;
 	Return 0;
 }
