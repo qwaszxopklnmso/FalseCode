@@ -5,3 +5,4 @@ node_modules/
 *.cpp
 .env.wsl.sh
 Think.md
+chats/
