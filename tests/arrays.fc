@@ -1,5 +1,5 @@
 Def Main() {
-	v[] -> int;
+	v<> -> int;
 	v.add(1);
 	v.add(2);
 	v.add(3);

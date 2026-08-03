@@ -1,0 +1,4 @@
+Def Main(argc ->int,argv[] -> char) {
+	Out argc*10;
+	return 0xab;
+}

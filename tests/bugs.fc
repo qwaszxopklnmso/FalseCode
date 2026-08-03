@@ -52,7 +52,7 @@ Def Main() {
 	Out "v.len";
 	Out Nl;
 
-	v[] -> int;
+	v<> -> int;
 	v.add(1);
 	v.add(2);
 	v.remove(Square(1));

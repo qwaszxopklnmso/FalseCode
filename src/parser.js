@@ -145,7 +145,17 @@ function parse(sourceText) {
   function unparen(tokens) {
     const w = words(tokens);
     if (w.length && w[0].value === '(' && lastOf(w).value === ')') {
-      return w.slice(1, -1);
+      // only strip when the first '(' closes exactly at the end —
+      // `(A) && (B)` is NOT a wrapping pair, `(A && B)` is.
+      let depth = 0, wrapsAll = true;
+      for (let i = 0; i < w.length; i++) {
+        if (w[i].value === '(') depth++;
+        else if (w[i].value === ')') {
+          depth--;
+          if (depth === 0 && i !== w.length - 1) { wrapsAll = false; break; }
+        }
+      }
+      if (wrapsAll) return w.slice(1, -1);
     }
     return w;
   }
@@ -179,8 +189,12 @@ function parse(sourceText) {
     while (!atEnd()) {
       const l = peek();
       if (isCommentLine(l)) { pos++; continue; }
-      if (isCloseOnly(l)) { pos++; continue; }
+      // preprocessor lines (`#ifdef`/`#endif`/...) are usually flush-left even
+      // inside indented blocks — don't let them end the block
+      const w0 = words(l.tokens);
+      if (w0.length && w0[0].value === '#') { pos++; parseLine(l, stmts); continue; }
       if (l.indent <= headerIndent) break;
+      if (isCloseOnly(l)) { pos++; continue; }
       pos++;
       parseLine(l, stmts);
     }
@@ -210,6 +224,11 @@ function parse(sourceText) {
     }
     const k = toks[0].value.toLowerCase();
     const line = { tokens: toks, indent: l.indent, lineNo: l.lineNo };
+    // do-while tail: `} While (cond);` after a `do {` block
+    if (toks[0].value === '}' && toks[1] && toks[1].value.toLowerCase() === 'while') {
+      stmts.push({ kind: 'dowhile', cond: stripSemi(toks.slice(2)) });
+      return;
+    }
     // preprocessor lines (#define, #include, ...) pass through verbatim
     if (toks[0].value === '#') {
       stmts.push({ kind: 'raw', text: l.text });
@@ -223,27 +242,44 @@ function parse(sourceText) {
       case 'case': parseCase(line, stmts); return;
       case 'for': parseFor(line, stmts); return;
       case 'while': parseWhile(line, stmts); return;
+      case 'do': parseDo(line, stmts); return;
       case 'def': parseDef(line, stmts); return;
       case 'struct':
       case 'class':
       case 'union': {
-        // pass the whole brace block through verbatim (C++ struct/class)
-        const raw = [l.text];
+        // header line passes through verbatim; interior lines are parsed
+        // as False Code (C++-style content still passes through as stmts)
+        stmts.push({ kind: 'raw', text: l.text });
         let depth = 0;
         for (const t of l.tokens) {
           if (t.value === '{') depth++;
           else if (t.value === '}') depth--;
         }
+        const braceDelta = (toks) => toks.reduce((d, t) =>
+          t.value === '{' ? d + 1 : t.value === '}' ? d - 1 : d, 0);
         while (!atEnd() && depth > 0) {
           const n = peek();
-          pos++;
-          raw.push(n.text);
-          for (const t of n.tokens) {
-            if (t.value === '{') depth++;
-            else if (t.value === '}') depth--;
+          const d = braceDelta(n.tokens);
+          if (depth + d <= 0) {
+            // closing line (`};` / `}a[105];`) — pass through verbatim
+            pos++;
+            depth += d;
+            stmts.push({ kind: 'raw', text: n.text });
+            break;
           }
+          if (isCloseOnly(n)) {
+            // a `}` closing an inner block (e.g. a Def method body)
+            pos++;
+            depth += d;
+            continue;
+          }
+          const start = pos;
+          pos++;
+          parseLine(n, stmts);
+          // parseLine may consume several lines (block bodies); count the
+          // braces of every line it consumed so depth stays accurate.
+          for (let i = start; i < pos; i++) depth += braceDelta(lines[i].tokens);
         }
-        stmts.push({ kind: 'raw', text: raw.join('\n') });
         return;
       }
       case 'return': stmts.push({ kind: 'return', tokens: stripSemi(toks.slice(1)) }); return;
@@ -257,8 +293,31 @@ function parse(sourceText) {
       case 'pass': stmts.push({ kind: 'empty' }); return;
       default: {
         const last = lastOf(toks);
-        if (last && (last.value === '{' || last.value === '}')) {
-          // trailing `{`/`}` only: `x = 1; { y = 2; }` or `f() {` + indented body
+        if (last && last.value === '{') {
+          // brace-init list: `arr[2][3] = { ... };` / `rmap[...] = { ... };`
+          // — pass the whole block through verbatim (C++ initializer)
+          let eqDepth = 0, hasEq = false;
+          for (const t of toks) {
+            if (t.value === '(' || t.value === '[') eqDepth++;
+            else if (t.value === ')' || t.value === ']') eqDepth--;
+            else if (eqDepth === 0 && t.value === '=') { hasEq = true; break; }
+          }
+          if (hasEq) {
+            const raw = [l.text];
+            let depth = 1;
+            while (!atEnd() && depth > 0) {
+              const n = peek();
+              pos++;
+              raw.push(n.text);
+              for (const t of n.tokens) {
+                if (t.value === '{') depth++;
+                else if (t.value === '}') depth--;
+              }
+            }
+            stmts.push({ kind: 'raw', text: raw.join('\n') });
+            return;
+          }
+          // function/block form: `f() {` / `x = 1; { y = 2; }` + indented body
           const head = stripSemi(toks).filter((t) => t.value !== '{' && t.value !== '}');
           stmts.push({ kind: 'stmt', tokens: head, body: last.value === '}' ? [] : readBlock(line.indent) });
         } else {
@@ -281,12 +340,24 @@ function parse(sourceText) {
     }
     // chain elif / else at the same indent
     while (!atEnd()) {
-      const n = peek();
+      let n = peek();
       if (isCommentLine(n)) { pos++; continue; }
+      // `} Else {` / `} Elif ...` on one line: the `}` closes the previous
+      // branch, the rest is the next branch head
+      const w0 = words(n.tokens);
+      let consumed = false;
+      if (w0.length > 1 && w0[0].value === '}') {
+        pos++;
+        n = { tokens: w0.slice(1), indent: n.indent, lineNo: n.lineNo };
+        consumed = true;
+      } else if (isCloseOnly(n)) {
+        pos++;
+        continue;
+      }
       const nk = kw(n);
       if (nk !== 'elif' && nk !== 'else') break;
       if (n.indent !== l.indent) break;
-      pos++;
+      if (!consumed) pos++;
       if (nk === 'elif') {
         const e = read(n);
         const then = e.inline ? [e.inline] : readBlock(n.indent);
@@ -362,10 +433,19 @@ function parse(sourceText) {
     } else {
       // bare header (no leading parentheses):
       // `For i = f(1); i < 5; ++i {` — parens may still appear in calls
+      // an inline `Then` body ends the header: `For i=0; i<5; ++i; Then Out i;`
       const braceIdx = toks.findIndex((t) => t.value === '{');
-      const head = braceIdx >= 0 ? toks.slice(0, braceIdx) : toks;
+      let thenIdx = -1, depth = 0;
+      for (let i = 0; i < toks.length; i++) {
+        const v = toks[i].value;
+        if (v === '(' || v === '[') depth++;
+        else if (v === ')' || v === ']') depth--;
+        else if (depth === 0 && v.toLowerCase() === 'then') { thenIdx = i; break; }
+      }
+      const splitAt = braceIdx >= 0 ? braceIdx : (thenIdx >= 0 ? thenIdx : toks.length);
+      const head = toks.slice(0, splitAt);
       parts = splitSemi(head);
-      bodyTail = braceIdx >= 0 ? toks.slice(braceIdx) : [];
+      bodyTail = braceIdx >= 0 ? toks.slice(braceIdx) : (thenIdx >= 0 ? toks.slice(thenIdx) : []);
     }
     const node = {
       kind: 'for',
@@ -395,6 +475,45 @@ function parse(sourceText) {
       bodyTail = stop >= 0 ? toks.slice(stop) : [];
     }
     stmts.push({ kind: 'while', cond, body: parseLoopBody(l, bodyTail) });
+  }
+
+  function parseDo(l, stmts) {
+    // forms:
+    //   `do {` ... `} While cond;`     multi-line block + tail (dowhile node)
+    //   `do Out 1; While false;`       single-line single statement
+    //   `do { stmt; } While cond;`     single-line brace block
+    const toks = words(l.tokens).slice(1);
+    if (toks.length && toks[0].value === '{') {
+      // brace block on the same line or following lines: `do {` / `do { x; }`
+      const openIdx = toks.findIndex((t) => t.value === '{');
+      const closeIdx = toks.findIndex((t) => t.value === '}');
+      if (closeIdx > openIdx) {
+        const b = splitTopSemi(toks.slice(openIdx + 1, closeIdx))
+          .filter((g) => g.length)
+          .map((g) => emitSingle(g));
+        b.inline = true;
+        let tail = toks.slice(closeIdx + 1);
+        if (tail.length && tail[0].value.toLowerCase() === 'while') tail = tail.slice(1);
+        stmts.push({ kind: 'do', body: b, cond: stripSemi(tail) });
+        return;
+      }
+      stmts.push({ kind: 'do', body: readBlock(l.indent), cond: [] });
+      return;
+    }
+    // single statement form: `do Out 1; While false;`
+    // find the top-level `while` keyword (depth-aware)
+    let depth = 0, wi = -1;
+    for (let i = 0; i < toks.length; i++) {
+      const v = toks[i].value;
+      if (v === '(' || v === '[') depth++;
+      else if (v === ')' || v === ']') depth--;
+      else if (depth === 0 && v.toLowerCase() === 'while') { wi = i; break; }
+    }
+    const head = wi >= 0 ? toks.slice(0, wi) : toks;
+    const tail = wi >= 0 ? toks.slice(wi + 1) : [];
+    const b = splitTopSemi(head).filter((g) => g.length).map((g) => emitSingle(g));
+    b.inline = true;
+    stmts.push({ kind: 'do', body: b, cond: stripSemi(tail) });
   }
 
   // For/While body: `{...}` (same line) -> brace block;
@@ -453,17 +572,26 @@ function parse(sourceText) {
       .filter((g) => g.length)
       .map((g) => {
         const arrIdx = g.findIndex((t) => t.value === '[');
+        const ltIdx = g.findIndex((t) => t.value === '<' || t.value === '<<');
         const annIdx = g.findIndex((t) => t.value === '->');
         let cut = g.length;
         if (annIdx >= 0) cut = annIdx;
         if (arrIdx >= 0 && arrIdx < cut) cut = arrIdx;
+        if (ltIdx >= 0 && ltIdx < cut) cut = ltIdx;
         const size = arrIdx >= 0
           ? toText(g.slice(arrIdx + 1, g.findIndex((t) => t.value === ']')))
           : '';
+        let nesting = 0;
+        if (ltIdx >= 0) {
+          const flat = g.slice(ltIdx, annIdx >= 0 ? annIdx : g.length)
+            .flatMap((t) => t.value === '<<' ? ['<', '<'] : t.value === '>>' ? ['>', '>'] : [t.value]);
+          nesting = flat.filter((v) => v === '<').length;
+        }
         return {
           name: g.slice(0, cut).map((t) => t.value).join(''),
           array: arrIdx >= 0,
           size,
+          nesting,
           type: annIdx >= 0 ? toText(g.slice(annIdx + 1)) : '',
         };
       });
@@ -541,7 +669,18 @@ function parse(sourceText) {
       cond = unparen(condToks);
       inline = emitSingle(w.slice(thenIdx + 1));
     } else {
-      cond = unparen(w.slice(0, end));
+      const w2 = w.slice(0, end);
+      // C++-style inline: `if (cond) stmt;` — first `(` ... `)` pair is the
+      // condition, the rest is a single statement ending in `;`.
+      if (w2.length && w2[0].value === '(') {
+        const { inner, tail } = parenSplit(w2);
+        if (tail.length && lastOf(tail).value === ';') {
+          cond = inner;
+          inline = emitSingle(stripSemi(tail));
+          return { cond, inline };
+        }
+      }
+      cond = unparen(w2);
     }
     return { cond, inline };
   }

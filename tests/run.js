@@ -47,9 +47,15 @@ function runCase(basename) {
       timeout: 10000,
     }).replace(/\r/g, '').trim();
   } catch (e) {
-    fail++;
-    console.log(`FAIL ${basename}: runtime error\n${e.stderr || e.message}`);
-    return;
+    // non-zero exit code (e.g. a fixture returning 0xab): tolerate it when
+    // an expected output exists and stdout was captured
+    if (has(basename + '.out') && e.stdout != null) {
+      stdout = e.stdout.toString().replace(/\r/g, '').trim();
+    } else {
+      fail++;
+      console.log(`FAIL ${basename}: runtime error\n${e.stderr || e.message}`);
+      return;
+    }
   }
 
   // 3. compare to expected output

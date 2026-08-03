@@ -1,0 +1,40 @@
+def MaxBalanced(n -> int, m -> int, g<<>> -> int) -> int {
+	ans = 0 -> int;
+	For r1 = 0 -> int; r1 < n; ++r1 {
+		For c1 = 0 -> int; c1 < m; ++c1 {
+			For r2 = r1 -> int; r2 < n; ++r2 {
+				For c2 = c1 -> int; c2 < m; ++c2 {
+					black = 0 -> int;
+					For i = r1 -> int; i <= r2; ++i {
+						For j = c1 -> int; j <= c2; ++j {
+							If g[i][j] == 1 Then black = black + 1;
+						}
+					}
+					area = (r2 - r1 + 1) * (c2 - c1 + 1) -> int;
+					If black * 2 == area && area > ans Then ans = area;
+				}
+			}
+		}
+	}
+	Return ans;
+}
+
+Def Main() {
+	n = 0 -> int;
+	m = 0 -> int;
+	In to n, m;
+	grid<<>> -> int;
+	row = "" -> string;
+	For i = 0 -> int; i < n; ++i {
+		In to row;
+		line<> -> int;
+		For j = 0 -> int; j < m; ++j {
+			If row[j] == '1' Then line.add(1);
+			Else line.add(0);
+		}
+		grid.add(line);
+	}
+	Out MaxBalanced(n, m, grid);
+	Out Nl;
+	Return 0;
+}

@@ -32,7 +32,7 @@ Def Main() {
     Out Nl;
 
     y = 7 -> int;
-    y ~= 2;
+    y = ~y;
     Out y;
     Out Nl;
 
@@ -41,7 +41,7 @@ Def Main() {
     Out z;
     Out Nl;
 
-    arr[] -> int;
+    arr<> -> int;
     arr.add(10);
     arr.add(20);
     arr.add(30);

@@ -10,11 +10,6 @@ Def Main() {
 	Out e;
 	Out Nl;
 
-	d = 1 -> int;
-	d ~= 0;
-	Out d;
-	Out Nl;
-
 	f = 5 -> int;
 	f ##;
 	Out f;

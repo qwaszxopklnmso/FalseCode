@@ -1,0 +1,30 @@
+Def Main() {
+	x<> -> char;
+	x.add('a');
+	x.add('b');
+	Out x[0], x.len;
+	Out Nl;
+
+	vec<<>> -> int;
+	vec.add({1, 2});
+	vec.add({3, 4, 5});
+	Out vec.len;
+	Out Nl;
+	Out vec[0][1], vec[1][2];
+	Out Nl;
+
+	grid<<<>>> -> int;
+	Out grid.len;
+	Out Nl;
+
+	old<> -> int;
+	old.add(9);
+	Out old[0];
+	Out Nl;
+
+	n = 16 -> int;
+	n = n << 2;
+	Out n;
+	Out Nl;
+	Return 0;
+}

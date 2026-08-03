@@ -1,0 +1,24 @@
+struct node {
+	string id;
+	int age;
+	bool operator<(const node &x)const{
+		if(age >= 60 && x.age >= 60){
+			return age > x.age;
+		}
+		if(age >= 60) return true;
+		if(x.age >= 60) return false;
+		return false;
+	}
+}a[105];
+int n;
+Def Main() {
+	In to n;
+	For i = 1 -> int; i <= n; ++i {
+		In to a[i].id, a[i].age;
+	}
+	stable_sort(a + 1, a + n + 1);
+	For i = 1 -> int; i <= n; ++i {
+		Out a[i].id, Nl;
+	}
+	Return 0;
+}

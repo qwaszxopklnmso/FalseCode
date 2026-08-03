@@ -4,7 +4,6 @@
 // This is where the semantically special tokens become C++:
 //   ^^ / ^^=  -> pow()
 //   ##        -> set-to-zero
-//   ~=        -> bitwise NOT
 //   .add()/.remove()/.len       -> vector interface
 //   attr `x = v -> T`, `x -> T`, `x[] -> T`, `x[N] -> T` -> declarations
 // =====================================================================
@@ -20,6 +19,66 @@ function gen(ast) {
   // Record declared array shapes so statements like `i##;` can know
   // whether a name is a fixed C array, a vector, or a scalar.
   const arrays = new Map();
+
+  // Custom type names (typedef / #define / struct / class / union / enum /
+  // namespace) so `->` and `<>` annotations accept them as types.
+  const typeNames = new Set();
+
+  // Names declared as `string` (incl. def params): their `.len` maps to
+  // `.length()` instead of `.size()`.
+  const strings = new Set();
+
+  const isStringType = (text) => (text || '').replace(/\s+/g, '').endsWith('string');
+
+  // walk the whole AST first so every custom type name is registered
+  ast.forEach(collectTypes);
+
+  function collectTypes(node) {
+    if (!node) return;
+    const words = (node.tokens || []).filter((t) => t.type === 'word');
+    const first = words.length && words[0].value.toLowerCase();
+    if (first === 'typedef' && words.length >= 2) {
+      typeNames.add(words[words.length - 1].value);
+    } else if (['struct', 'class', 'union', 'enum', 'namespace'].includes(first) && words.length >= 2) {
+      typeNames.add(words[1].value);
+    } else if (node.kind === 'raw') {
+      const line0 = node.text.split('\n')[0];
+      const m = line0.match(/^\s*#\s*define\s+([A-Za-z_]\w*)/);
+      if (m) typeNames.add(m[1]);
+      const nm = line0.match(/^\s*namespace\s+([A-Za-z_]\w*)/);
+      if (nm) typeNames.add(nm[1]);
+      const sm = line0.match(/^\s*(struct|class|union|enum)\s+([A-Za-z_]\w*)/);
+      if (sm) typeNames.add(sm[2]);
+    }
+    if (node.body) (Array.isArray(node.body) ? node.body : [node.body]).forEach(collectTypes);
+    if (node.then) node.then.forEach(collectTypes);
+    if (node.elifs) node.elifs.forEach(collectTypes);
+    if (node.els) {
+      if (node.els.stmts) node.els.stmts.forEach(collectTypes);
+      else collectTypes(node.els);
+    }
+  }
+
+  // is tokens[i] (`->`) a False Code type annotation? Built-in TYPE_WORD,
+  // a registered custom type name, or a qualified `ns::Name` / `std::string`.
+  function isTypeLike(tokens, i) {
+    const rest = tokens.slice(i + 1)
+      .filter((x) => x.value !== '*' && x.value !== '[' && x.value !== ']');
+    const joined = rest.map((x) => x.value).join(' ');
+    if (TYPE_WORD.test(joined)) return true;
+    if (!rest.length || rest[0].type !== 'word') return false;
+    const names = [];
+    let k = 0;
+    while (k < rest.length && rest[k].type === 'word') {
+      names.push(rest[k].value);
+      k++;
+      if (rest[k] && rest[k].value === '::') { k++; continue; }
+      break;
+    }
+    if (!names.length) return false;
+    const last = names[names.length - 1];
+    return typeNames.has(last) || (names.length >= 2 && TYPE_WORD.test(last));
+  }
 
   // ---------------------------------------------------------------
   // token -> text with sane spacing (string/char literals masked so the
@@ -60,7 +119,8 @@ function gen(ast) {
     // `.remove(...)` -> `.pop_back()` (drop args, incl. nested parens)
     s = s.replace(/\.remove\s*\(/g, '\u0001');
     s = dropParenArgs(s);
-    s = s.replace(/\.len\b/g, '.size()');
+    s = s.replace(/([A-Za-z_]\w*)\.len\b/g, (m, nm) =>
+      strings.has(nm) ? `${nm}.length()` : `${nm}.size()`);
     // power infix: `a ^^ b`, `(a+1) ^^ 2` -> `pow(...)`
     s = convertPower(s);
     // set-to-zero `##`: `## x` -> `(x = 0)`, `x ##` -> `(x = 0)`
@@ -220,12 +280,10 @@ function gen(ast) {
     };
 
     // `->` is a False Code type annotation only when followed by a type
-    // keyword (pointers `int*` allowed); otherwise it is plain C++ member
-    // access (`p->x`).
+    // keyword, a registered custom type, or `ns::Name`; otherwise it is
+    // plain C++ member access (`p->x`).
     const annIdx = tokens.findIndex((t, i) =>
-      t.value === '->' && TYPE_WORD.test(tokens.slice(i + 1)
-        .filter((x) => x.value !== '[' && x.value !== ']' && x.value !== '*')
-        .map((x) => x.value).join(' ')));
+      t.value === '->' && isTypeLike(tokens, i));
     const eqIdx = tokens.findIndex((t) => t.value === '=');
 
     // -------- declarations (annotation present) --------
@@ -233,6 +291,25 @@ function gen(ast) {
       const typeTok = tokens.slice(annIdx + 1);
       const typeText2 = typeTok.filter((t) => t.value !== '[' && t.value !== ']')
         .map((t) => t.value).join(' ');
+
+      // angle-bracket dynamic array: `x<> -> T` -> vector<T>,
+      // `vec<<>> -> T` -> vector<vector<T>> (`<<`/`>>` lex as shift ops)
+      const ltIdx = tokens.findIndex((t) => t.value === '<' || t.value === '<<');
+      if (ltIdx >= 0 && (eqIdx < 0 || ltIdx < eqIdx)) {
+        const name = declName(tokens.slice(0, ltIdx));
+        const flat = tokens.slice(ltIdx, annIdx).flatMap((t) =>
+          t.value === '<<' ? ['<', '<'] : t.value === '>>' ? ['>', '>'] : [t.value]);
+        const openCount = flat.filter((v) => v === '<').length;
+        const closeCount = flat.filter((v) => v === '>').length;
+        if (openCount !== closeCount || !openCount || flat.some((v) => v !== '<' && v !== '>')) {
+          throw new Error(`invalid dynamic array '${name}<>': expected balanced '<' '>' pairs (e.g. x<> or vec<<>>)`);
+        }
+        arrays.set(name, { kind: 'vector' });
+        if (eqIdx >= 0 && eqIdx < annIdx) {
+          throw new Error(`dynamic array '${name}<>' cannot take an initializer ('= ${expNoSemi(tokens.slice(eqIdx + 1, annIdx))}')`);
+        }
+        return `${'vector<'.repeat(openCount)}${typeCpp(typeText2)}${'>'.repeat(openCount)} ${name};`;
+      }
 
       // open or sized array: `a[] -> T` / `a[N] -> T` / `a[N][M] -> T`
       // (the `[` must be part of the declarator — before `=`, so `x = a[0] -> T;` stays scalar)
@@ -257,16 +334,6 @@ function gen(ast) {
           ti = close + 1;
         }
         const allSizes = dims.map((d) => expNoSemi(d));
-        const openDim = dims.some((d) => d.length === 0);
-        if (openDim) {
-          // open dimension: `v[]` -> vector, `v[][]` -> vector<vector<...>>
-          arrays.set(name, { kind: 'vector' });
-          if (eqIdx >= 0 && eqIdx < annIdx) {
-            throw new Error(`dynamic array '${name}[]' cannot take an initializer ('= ${expNoSemi(tokens.slice(eqIdx + 1, annIdx))}')`);
-          }
-          const openCount = dims.filter((d) => d.length === 0).length;
-          return `${'vector<'.repeat(openCount)}${typeCpp(typeText2)}${'>'.repeat(openCount)} ${name};`;
-        }
         arrays.set(name, { kind: 'fixed' });
         const sizeSuffix = allSizes.map((s) => `[${s}]`).join('');
         // `i[10]=0->int;` -> `int i[10] = {0};`
@@ -282,11 +349,13 @@ function gen(ast) {
         const lhs = declName(tokens.slice(0, eqIdx));
         const val = expNoSemi(tokens.slice(eqIdx + 1, annIdx));
         arrays.delete(lhs);
+        if (isStringType(typeText2)) strings.add(lhs);
         return `${typeCpp(typeText2)} ${lhs} = ${val};`;
       }
       // `x -> T`
       const lhs = declName(tokens.slice(0, annIdx));
       arrays.delete(lhs);
+      if (isStringType(typeText2)) strings.add(lhs);
       return `${typeCpp(typeText2)} ${lhs};`;
     }
 
@@ -296,13 +365,6 @@ function gen(ast) {
       const lhs = tokens.slice(0, powEq).map((t) => t.value).join('');
       const rhs = expNoSemi(tokens.slice(powEq + 1));
       return `${lhs} = pow(${lhs}, ${rhs});`;
-    }
-    const notEq = tokens.findIndex((t) => t.value === '~=');
-    if (notEq >= 0) {
-      const lhs = tokens.slice(0, notEq).map((t) => t.value).join('');
-      const rhs = expNoSemi(tokens.slice(notEq + 1));
-      if (rhs) return `${lhs} = ~(${rhs});`;
-      return `${lhs} = ~(${lhs});`;
     }
     // set-to-zero operator `##`  (no backslash prefix needed)
     const zeroIdx = tokens.findIndex((t) => t.value === '##');
@@ -328,12 +390,10 @@ function gen(ast) {
 
   // -------- for-head => C++ fragment --------
   function headDecl(tokens) {
-    // `->` is a type annotation only when followed by a type keyword
-    // (same rule as stmtCpp); otherwise it is `p->x` member access.
+    // `->` is a type annotation only when followed by a type keyword or
+    // registered custom type (same rule as stmtCpp); otherwise `p->x`.
     const ann = tokens.findIndex((t, i) =>
-      t.value === '->' && TYPE_WORD.test(tokens.slice(i + 1)
-        .filter((x) => x.value !== '[' && x.value !== ']' && x.value !== '*')
-        .map((x) => x.value).join(' ')));
+      t.value === '->' && isTypeLike(tokens, i));
     if (ann >= 0) {
       const type = typeCpp(tokens.slice(ann + 1).map((t) => t.value).join(' ').trim());
       const before = tokens.slice(0, ann);
@@ -613,6 +673,26 @@ function gen(ast) {
         emit(`${p}}`);
         return;
       }
+      case 'dowhile': {
+        const cond = node.cond.length ? expNoSemi(node.cond) : 'true';
+        emit(`${p}while (${cond});`);
+        return;
+      }
+      case 'do': {
+        const cond = node.cond.length ? expNoSemi(node.cond) : null;
+        if (node.body.inline && node.body.length === 1 && cond !== null) {
+          const s = inlineStmt(node.body[0]);
+          if (s !== null) {
+            emit(`${p}do ${s}; while (${cond});`);
+            return;
+          }
+        }
+        emit(`${p}do {`);
+        genBlock(node.body, indent + 1);
+        emit(`${p}}`);
+        if (cond !== null) emit(`${p}while (${cond});`);
+        return;
+      }
       case 'def': {
         const isMain = node.name.toLowerCase() === 'main';
         const plainType = (s) => typeCpp((s || '').replace(/\[[^\]]*\]/g, '').trim());
@@ -620,6 +700,10 @@ function gen(ast) {
           if (pp.name === 'argc') return 'int argc';
           if (pp.name === 'argv') return 'char** argv';
           const t = plainType(pp.type) || 'int';
+          if (pp.nesting) {
+            arrays.set(pp.name, { kind: 'vector' });
+            return `${'vector<'.repeat(pp.nesting)}${t}${'>'.repeat(pp.nesting)} ${pp.name}`;
+          }
           if (pp.array) {
             if (pp.size) {
               arrays.set(pp.name, { kind: 'fixed' });
@@ -628,6 +712,7 @@ function gen(ast) {
             arrays.set(pp.name, { kind: 'vector' });
             return `vector<${t}> ${pp.name}`;
           }
+          if (isStringType(pp.type)) strings.add(pp.name);
           return `${t} ${pp.name}`;
         }).join(', ');
         const ret = isMain

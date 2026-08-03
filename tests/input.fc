@@ -1,7 +1,7 @@
 Def Main() {
 	a = 0 -> int;
 	b = 0 -> int;
-	array[] -> int;
+	array<> -> int;
 	array.add(1);
 	array.add(2);
 	array.add(0);

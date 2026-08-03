@@ -1,10 +1,7 @@
 def MakePal(x -> int) -> int {
 	r = x -> int;
 	t = x / 10 -> int;
-	While t > 0 {
-		r = r * 10 + t % 10;
-		t = t / 10;
-	}
+	While t > 0 ; Then r = r * 10 + t % 10,t = t / 10;
 	Return r;
 }
 
@@ -12,9 +9,9 @@ def IsPrime(x -> int) -> bool {
 	If x < 2 Then Return false;
 	i = 2 -> int;
 	While i * i <= x {
-		If x % i == 0 Then Return false;
-		i = i + 1;
-	}
+		Then If x % i == 0 Then Return false;
+		i++;
+	}	
 	Return true;
 }
 

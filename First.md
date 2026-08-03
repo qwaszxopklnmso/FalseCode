@@ -21,15 +21,17 @@
 -   不可以重名
 ## 数组使用：
 - 同C++，支持多维定长数组：a[N][M] -> T;
+- 动态数组用<>表示vector: x<> -> int; 即 vector<int>; vec<<>> -> int; 即 vector<vector<int>>; 嵌套<>个数=层数
+- c[] -> char; 是C风格数组: char c[]; (可用 c[] = "hello" -> char; 初始化,长度自动推断)
 ```False Code
-a[] -> int; // Vector
-
+x<> -> int; //Vector
 b[10] -> char; //Array
-c[2][3] -> int; //多维定长数组,同C++ b[2][3]
-a.add(1); //pushback
-a.remove(0); //popback
-Out a.len // 获取数组长度
-a[0]=1; //Let the first one be 1.
+c[] = "hello" -> char; //C风格字符数组 char c[] = {"hello"};
+c2[2][3] -> int; //多维定长数组,同C++ c2[2][3]
+x.add(1); //pushback
+x.remove(0); //popback
+Out x.len // 获取数组长度
+x[0]=1; //Let the first one be 1.
 In to b[0];
 ```
 ## 字符串/字符同C++语法(""使用string,''使用char)
@@ -50,19 +52,20 @@ In to b[0];
 ## 符号使用:
 -	==
 -	!=
--	^=
+-	^= (按位异或,同C++: a^=b 输出 a=a^b; b=a^b 输出 b=a^b,原样透传)
 -	^^= (次方)
 -	%=
 -	/=
 -	## (设为0)
 -	++
 -	--
--	~= (取反)
 -	...
 ---
 - If,Elif,Else后使用 ?+Tab/Then,like python
 - Case后使用?+Tab/Then,like python
 - while,for,switch使用{}或者Then+单语句
+- do-while: do { ... } While 条件; (多行块) / do 单语句; While 条件; (单行) / do { 单行块; } While 条件; (单行块)
+- struct/class/union 内部可以使用 False Code 语法(成员声明、Def 方法、If/For/While 等),也可以写 C++ 原生代码(如 operator<)
 ---
 ## 再加别的，自己想。
 ```FalseCode

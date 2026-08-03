@@ -59,14 +59,14 @@ src/         转译器(lexer → parser → generator → CLI)
 bin/fc.js    全局命令入口
 tests/       端到端测试(fixtures: *.fc + 期望输出 *.out)
 example/     示例程序
-Luogu_test/  用 False Code 写的洛谷题解
+problems_test/  用 False Code 写的题目题解(洛谷/一本通等)
 First.md     语言规范(唯一权威参考)
 ```
 
 ## 语言速览
 
 - 入口:`Def Main() { ... }`,返回 `int`(可省略 `Return 0;`)
-- 类型注解:`x = 1 -> int;`、`a[] -> int`(vector)、`b[10] -> char`(定长数组)
+- 类型注解:`x = 1 -> int;`、`v<> -> int`(vector)、`b[10] -> char`(定长数组)、`c[] -> char`(C 风格数组)
 - 控制流:`If cond ?` / `If cond {` / `Then` 单语句、`For`/`While`、`Switch`/`Case`
 - 输入输出:`Out a, b, c;`(`Nl` = 换行)、`In to a, b, c;`
 - 函数:`def Fn(a -> int) -> int { Return a * 2; }`
@@ -77,3 +77,9 @@ First.md     语言规范(唯一权威参考)
 ---
 
 AI 制作提示:本项目由 **DeepSeek** 辅助开发与维护。
+
+# AI调用部分
+
+## AI做题
+- 调用problems_test/problem.md 并给与题目/代码+出处+题号/名称
+- 代码在problems_test/

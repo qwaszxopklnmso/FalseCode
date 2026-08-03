@@ -14,7 +14,7 @@ Def Main() {
 	Out fixed[0] + fixed[1] + fixed[2];
 	Out Nl;
 
-	v[] -> int;
+	v<> -> int;
 	v.add(5);
 	v.add(6);
 	v##;
