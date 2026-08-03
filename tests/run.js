@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFileSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
 const { transpile } = require('../src/main.js');
 
@@ -24,12 +24,18 @@ function runCase(basename) {
   fs.writeFileSync(cpp, outCpp);
 
   // 1. the transpiled result must compile
-  try {
-    execFileSync('g++', ['-std=c++11', '-O0', '-w', cpp, '-o', exe],
-      { stdio: 'pipe' });
-  } catch (e) {
+  const gxx = (process.env.GXX ? [process.env.GXX] : []).concat(['g++', 'g++.exe'])
+    .find((c) => spawnSync(c, ['--version'], { stdio: 'ignore' }).error === undefined);
+  if (!gxx) {
     fail++;
-    const msg = (e.stderr || e.message || '').toString().split('\n').filter(Boolean);
+    console.log(`FAIL ${basename}: no C++ compiler (set GXX or add g++/g++.exe to PATH)`);
+    return;
+  }
+  const comp = spawnSync(gxx, ['-std=c++11', '-O0', '-w', cpp, '-o', exe],
+    { stdio: 'pipe' });
+  if (comp.error || comp.status !== 0) {
+    fail++;
+    const msg = ((comp.stderr || comp.error?.message || '') + '').split('\n').filter(Boolean);
     const first = msg.slice(0, 6).join('\n');
     console.log(`FAIL ${basename}: compile error\n${first}`);
     if (fs.existsSync(cpp)) { try { fs.unlinkSync(cpp); } catch {} }
@@ -38,25 +44,25 @@ function runCase(basename) {
 
   // 2. run it with optional stdin
   const stdin = has(basename + '.in') ? fs.readFileSync(stdinFile) : undefined;
-  let stdout;
-  try {
-    stdout = execFileSync(exe, {
-      input: stdin,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      encoding: 'utf8',
-      timeout: 10000,
-    }).replace(/\r/g, '').trim();
-  } catch (e) {
-    // non-zero exit code (e.g. a fixture returning 0xab): tolerate it when
-    // an expected output exists and stdout was captured
-    if (has(basename + '.out') && e.stdout != null) {
-      stdout = e.stdout.toString().replace(/\r/g, '').trim();
-    } else {
-      fail++;
-      console.log(`FAIL ${basename}: runtime error\n${e.stderr || e.message}`);
-      return;
-    }
+  const res = spawnSync(exe, {
+    input: stdin,
+    stdio: ['pipe', 'pipe', 'pipe'],
+    encoding: 'utf8',
+    timeout: 10000,
+  });
+  // a non-zero exit code (e.g. a fixture `Return 0xab;`) is tolerated when an
+  // expected output exists and stdout was still produced.
+  if (res.error) {
+    fail++;
+    console.log(`FAIL ${basename}: runtime error\n${res.error.message}`);
+    return;
   }
+  if (res.status !== 0 && !(has(basename + '.out') && res.stdout != null)) {
+    fail++;
+    console.log(`FAIL ${basename}: runtime error (exit ${res.status})\n${res.stderr || ''}`);
+    return;
+  }
+  const stdout = (res.stdout || '').replace(/\r/g, '').trim();
 
   // 3. compare to expected output
   const expected = has(basename + '.out')
