@@ -67,3 +67,4 @@ Keep this a self-contained project. Work against documented C++ output correctne
 - Speak Chinese no matter what language I say. (Also Thinking in Chinese)
 - List Bugs before Fix bugs. (Think about bugs(Find bugs,not to run regress) -> List bugs -> wait-ask -> Fix bugs -> Test(regress))
 - **Version bump rule:** every change (bugfix/doc/CI) bumps the last patch digit +1 by default (e.g. 0.3.2 → 0.3.3). Only bump minor/major (e.g. 0.3 → 0.4) when the user explicitly asks. Release = `git tag vX.Y.Z && git push origin vX.Y.Z` (npm publish runs automatically via Trusted Publishing, no token needed).
+- **Always publish after every change:** after committing+pushing any change, create the tag and push it so npm gets the new version right away (the workflow only triggers on `v*` tag pushes). Do not leave the last published version behind.

@@ -1,0 +1,19 @@
+struct node {
+	int a;
+	bool operator < (const node & x) const {
+		For i = 0 -> int; i < 3; ++i {
+			If i == 1 Then Return true;
+		}
+		Return false;
+	}
+};
+Def Main() {
+	n = 0 -> int;
+	In to n;
+	node p;
+	p.a = n;
+	If p < p Then Out 111;
+	Else Out 222;
+	Out Nl;
+	Return 0;
+}

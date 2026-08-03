@@ -358,16 +358,22 @@ function parse(sourceText) {
             while (!atEnd() && bd > 0) {
               const m = peek();
               const mw = words(m.tokens);
-              const m0 = mw.length ? mw[0].value : '';
-              if (m0 === '}') {
-                // closing of this brace block (operator body or `}a[105];`)
-                stmts.push({ kind: 'raw', text: m.text });
+            const m0 = mw.length ? mw[0].value : '';
+            if (m0 === '}') {
+                // A `}` closes the innermost open brace block. It may be an
+                // inner for/if/while whose `}` sits at the same indent
+                // (readBlock stops at <= headerIndent and leaves it to us),
+                // or this method block's own closer. Accumulate the brace
+                // balance instead of breaking on the first `}`: an inner
+                // block closer is dropped here (the generator emits its own
+                // `}`), and only the closer that balances the method block
+                // back to 0 is emitted verbatim.
                 pos++;
-                bd--;
-                break;
-              }
-              if (isCloseOnly(m)) { stmts.push({ kind: 'raw', text: m.text }); pos++; bd--; continue; }
-              const mstart = pos;
+                bd += braceDelta(m.tokens);
+                if (bd <= 0) stmts.push({ kind: 'raw', text: m.text });
+                continue;
+            }
+            const mstart = pos;
               pos++;
               parseLine(m, stmts);
               for (let i = mstart; i < pos; i++) bd += braceDelta(lines[i].tokens);
