@@ -28,6 +28,10 @@ function gen(ast) {
   // `.length()` instead of `.size()`.
   const strings = new Set();
 
+  // Names declared as `queue<...>`: `q##` must rebuild an empty queue
+  // (queue has no clear()), keep the full type text for `q = type();`.
+  const queues = new Map();
+
   const isStringType = (text) => (text || '').replace(/\s+/g, '').endsWith('string');
 
   // walk the whole AST first so every custom type name is registered
@@ -60,7 +64,8 @@ function gen(ast) {
   }
 
   // is tokens[i] (`->`) a False Code type annotation? Built-in TYPE_WORD,
-  // a registered custom type name, or a qualified `ns::Name` / `std::string`.
+  // a registered custom type name, a qualified `ns::Name` / `std::string`,
+  // or a template type `name<...>` / `ns::name<...>`.
   function isTypeLike(tokens, i) {
     const rest = tokens.slice(i + 1)
       .filter((x) => x.value !== '*' && x.value !== '[' && x.value !== ']');
@@ -76,8 +81,22 @@ function gen(ast) {
       break;
     }
     if (!names.length) return false;
+    // template type: `std::vector<int>`, `map<int,int>`, `set<long long>`...
+    if (rest[k] && (rest[k].value === '<' || rest[k].value === '<<')) {
+      let depth = 0, ok = true;
+      for (let j = k; j < rest.length; j++) {
+        const v = rest[j].value;
+        if (v === '<<') depth += 2;
+        else if (v === '<') depth += 1;
+        else if (v === '>>') depth -= 2;
+        else if (v === '>') depth -= 1;
+        if (depth < 0) { ok = false; break; }
+      }
+      if (ok && depth === 0) return true;
+    }
     const last = names[names.length - 1];
-    return typeNames.has(last) || (names.length >= 2 && TYPE_WORD.test(last));
+    // qualified name (`ns::Name`, names crosses a `::`) is always a type
+    return typeNames.has(last) || names.length >= 2 || TYPE_WORD.test(last);
   }
 
   // ---------------------------------------------------------------
@@ -246,9 +265,12 @@ function gen(ast) {
       .map((t) => t.value).join(' ');
 
   // a `?` only ever appears as a trailing line suffix (If/While/Case);
-  // keep any other `?` (e.g. ternary) intact
+  // keep any other `?` (e.g. ternary) intact. Only trailing `;` is
+  // statement noise — embedded ones (e.g. a lambda body `{ a = 42; }`)
+  // are real C++ and must survive.
   function squeezeSemi(tokens) {
-    const t2 = tokens.filter((t) => t.value !== ';');
+    const t2 = [...tokens];
+    while (t2.length && t2[t2.length - 1].value === ';') t2.pop();
     if (t2.length && t2[t2.length - 1].value === '?') t2.pop();
     return t2;
   }
@@ -295,7 +317,7 @@ function gen(ast) {
       // angle-bracket dynamic array: `x<> -> T` -> vector<T>,
       // `vec<<>> -> T` -> vector<vector<T>> (`<<`/`>>` lex as shift ops)
       const ltIdx = tokens.findIndex((t) => t.value === '<' || t.value === '<<');
-      if (ltIdx >= 0 && (eqIdx < 0 || ltIdx < eqIdx)) {
+      if (ltIdx >= 0 && (eqIdx < 0 || ltIdx < eqIdx) && (annIdx < 0 || ltIdx < annIdx)) {
         const name = declName(tokens.slice(0, ltIdx));
         const flat = tokens.slice(ltIdx, annIdx).flatMap((t) =>
           t.value === '<<' ? ['<', '<'] : t.value === '>>' ? ['>', '>'] : [t.value]);
@@ -314,7 +336,7 @@ function gen(ast) {
       // open or sized array: `a[] -> T` / `a[N] -> T` / `a[N][M] -> T`
       // (the `[` must be part of the declarator — before `=`, so `x = a[0] -> T;` stays scalar)
       const arrIdx = tokens.findIndex((t) => t.value === '[');
-      if (arrIdx >= 0 && (eqIdx < 0 || arrIdx < eqIdx)) {
+      if (arrIdx >= 0 && (eqIdx < 0 || arrIdx < eqIdx) && (annIdx < 0 || arrIdx < annIdx)) {
         const name = declName(tokens.slice(0, arrIdx));
         // collect every dimension pair: `a[2][3]` -> sizes ['2','3']
         const dims = [];
@@ -355,7 +377,10 @@ function gen(ast) {
       // `x -> T`
       const lhs = declName(tokens.slice(0, annIdx));
       arrays.delete(lhs);
+      strings.delete(lhs);
+      queues.delete(lhs);
       if (isStringType(typeText2)) strings.add(lhs);
+      if (/^queue\s*</i.test(typeText2)) queues.set(lhs, typeText2);
       return `${typeCpp(typeText2)} ${lhs};`;
     }
 
@@ -369,19 +394,21 @@ function gen(ast) {
     // set-to-zero operator `##`  (no backslash prefix needed)
     const zeroIdx = tokens.findIndex((t) => t.value === '##');
     if (zeroIdx >= 0 && isPureLvalueCtx(tokens, zeroIdx)) {
+      const strReset = (name) => strings.has(name) ? `${name}.clear();` : null;
+      const queReset = (name) => queues.has(name) ? `${name} = ${queues.get(name)}();` : null;
       if (zeroIdx === 0) {
         // prefix form: `##i` -> `i = 0;`  (analogous to `++i` / `--i`)
         const rhs = expNoSemi(tokens.slice(1));
         const info = arrays.get(rhs);
         if (info && info.kind === 'fixed') return `memset(${rhs}, 0, sizeof(${rhs}));`;
         if (info && info.kind === 'vector') return `${rhs}.assign(${rhs}.size(), 0);`;
-        return `${rhs} = 0;`;
+        return strReset(rhs) || queReset(rhs) || `${rhs} = 0;`;
       }
       const lhs = tokens.slice(0, zeroIdx).map((t) => t.value).join('');
       const info = arrays.get(lhs);
       if (info && info.kind === 'fixed') return `memset(${lhs}, 0, sizeof(${lhs}));`;
       if (info && info.kind === 'vector') return `${lhs}.assign(${lhs}.size(), 0);`;
-      return `${lhs} = 0;`;
+      return strReset(lhs) || queReset(lhs) || `${lhs} = 0;`;
     }
 
     // -------- ordinary expression statement --------

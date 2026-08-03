@@ -11,6 +11,12 @@
 node src/main.js hello.fc          # 生成 hello.cpp(默认输出到输入文件旁)
 node src/main.js hello.fc out.cpp  # 指定输出路径
 
+# 命令行选项
+node src/main.js -v                # 输出版本号 (--version)
+node src/main.js -d                # 输出 README.md (--describe)
+node src/main.js -h                # 命令列表 (--help)
+node src/main.js -c hello.fc       # 转译后用 g++ 自动编译 (--compile)
+
 # 运行端到端测试套件(转译 → g++ 编译 → 对照 .out 运行)
 node tests/run.js
 ```
@@ -80,6 +86,6 @@ AI 制作提示:本项目由 **DeepSeek** 辅助开发与维护。
 
 # AI调用部分
 
-## AI做题
+## AI做题(By FalseCode)
 - 调用problems_test/problem.md 并给与题目/代码+出处+题号/名称
 - 代码在problems_test/

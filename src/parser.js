@@ -62,7 +62,11 @@ function parse(sourceText) {
 
   // ---- small token helpers -------------------------------------------
   const words = (tokens) => tokens.filter((t) => t.type !== 'comment');
-  const stripSemi = (tokens) => tokens.filter((t) => t.value !== ';');
+  const stripSemi = (tokens) => {
+    const t2 = [...tokens];
+    while (t2.length && t2[t2.length - 1].value === ';') t2.pop();
+    return t2;
+  };
 
   function keywordOf(tokens) {
     const w = words(tokens);
