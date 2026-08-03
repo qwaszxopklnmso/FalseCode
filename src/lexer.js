@@ -164,7 +164,10 @@ function indentLevelOf(line) {
     if (c === ' ') { spaces++; i++; continue; }
     break;
   }
-  return tabs + Math.ceil(spaces / 4);
+  // 2 spaces = 1 level (so 2-space and 4-space indents stay distinct;
+  // ceil(x/4) would collapse 2 and 4 spaces into the same level and break
+  // blocks like `if (...) {` + 4-space body)
+  return tabs + Math.ceil(spaces / 2);
 }
 
 /**

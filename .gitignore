@@ -5,4 +5,7 @@ node_modules/
 *.cpp
 .env.wsl.sh
 Think.md
+First_for_Agent.md
 chats/
+!problems_test/standard/*.in
+!problems_test/standard/*.out

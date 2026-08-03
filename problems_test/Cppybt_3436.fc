@@ -1,6 +1,3 @@
-#include <bits/stdc++.h>
-using namespace std;
-
 struct node {
 string id;
 int age;
@@ -14,15 +11,15 @@ bool operator < (const node & x) const {
   return false;
 }
 }a[105];
-int n;
-int main() {
-  cin >> n;
-  for (int i = 1; i <= n; ++ i) {
-    cin >> a[i].id >> a[i].age;
-  }
-  stable_sort (a + 1, a + n + 1);
-  for (int i = 1; i <= n; ++ i) {
-    cout << (a[i].id) << endl;
-  }
-  return 0;
+Def Main() {
+	n = 0 -> int;
+	In to n;
+	For i = 1 -> int; i <= n; ++i {
+		In to a[i].id, a[i].age;
+	}
+	stable_sort(a + 1, a + n + 1);
+	For i = 1 -> int; i <= n; ++i {
+		Out a[i].id, Nl;
+	}
+	Return 0;
 }

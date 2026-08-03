@@ -1,0 +1,63 @@
+xtmpx[105] -> string;
+mp[105][105] -> uint16_t;
+rmap[8][2] -> int16_t;
+n = 0 -> int;
+m = 0 -> int;
+mainlyx = 0 -> int;
+mainlyy = 0 -> int;
+Def check(x -> int, y -> int) -> bool {
+	If x >= n || x < 0 Then Return false;
+	If y >= m || y < 0 Then Return false;
+	Return true;
+}
+Def Tnt(x -> int, y -> int) -> void {
+	If !check(x, y) Then Return;
+	If mp[x][y] Then mp[x][y] = 2;
+	For i = 0 -> int; i < 8; ++i {
+		tx = x + rmap[i][0] -> int;
+		ty = y + rmap[i][1] -> int;
+		If !check(tx, ty) Then Continue;
+		If mp[tx][ty] == 2 Then Continue;
+		If mp[tx][ty] == 1 Then Tnt(tx, ty);
+		If mp[tx][ty] == 0 Then mp[tx][ty] = 2;
+	}
+}
+Def PrintMap() {
+	For i = 0 -> int; i < n; ++i {
+		For j = 0 -> int; j < m; ++j {
+			Out mp[i][j];
+		}
+		Out Nl;
+	}
+}
+Def Main() {
+	rmap[0][0] = -1;
+	rmap[0][1] = -1;
+	rmap[1][0] = 0;
+	rmap[1][1] = -1;
+	rmap[2][0] = 1;
+	rmap[2][1] = -1;
+	rmap[3][0] = -1;
+	rmap[3][1] = 0;
+	rmap[4][0] = 1;
+	rmap[4][1] = 0;
+	rmap[5][0] = -1;
+	rmap[5][1] = 1;
+	rmap[6][0] = 0;
+	rmap[6][1] = 1;
+	rmap[7][0] = 1;
+	rmap[7][1] = 1;
+	In to n, m;
+	For i = 0 -> int; i < n; ++i {
+		In to xtmpx[i];
+		For j = 0 -> int; j < m; ++j {
+			mp[i][j] = xtmpx[i][j] - '0';
+		}
+	}
+	In to mainlyx, mainlyy;
+	--mainlyx;
+	--mainlyy;
+	If mp[mainlyx][mainlyy] Then Tnt(mainlyx, mainlyy);
+	PrintMap();
+	Return 0;
+}

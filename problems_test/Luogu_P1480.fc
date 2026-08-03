@@ -1,31 +1,25 @@
-#include <bits/stdc++.h>
-using namespace std;
-
-int main() {
-  freopen ("P1480.in", "r", stdin);
-  freopen ("P1480.out", "w", stdout);
-  string s = "";
-  int b = 0;
-  cin >> s >> b;
-  int len = s.size ();
-  int ans[5005];
-  long long rem = 0;
-  for (int i = 0; i < len; ++ i) {
-    rem = rem * 10 + (s[i] - '0');
-    ans[i] = rem / b;
-    rem = rem % b;
-  }
-  int pos = 0;
-  while (pos < len && ans[pos] == 0) {
-    pos = pos + 1;
-  }
-  if (pos == len) {
-    cout << (0);
-  } else {
-    for (int i = pos; i < len; ++ i) {
-      cout << (ans[i]);
-    }
-  }
-  cout << endl;
-  return 0;
+Def Main() {
+	s = "" -> string;
+	b = 0 -> int;
+	In to s, b;
+	len = s.len -> int;
+	ans[5005] -> int;
+	rem = 0 -> long long;
+	For i = 0 -> int; i < len; ++i {
+		rem = rem * 10 + (s[i] - '0');
+		ans[i] = rem / b;
+		rem = rem % b;
+	}
+	pos = 0 -> int;
+	While pos < len && ans[pos] == 0 {
+		++pos;
+	}
+	If pos == len Then Out 0, Nl;
+	Else {
+		For i = pos -> int; i < len; ++i {
+			Out ans[i];
+		}
+		Out Nl;
+	}
+	Return 0;
 }

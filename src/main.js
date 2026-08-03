@@ -22,17 +22,19 @@ usage: falsecode <input.fc> [output.cpp] [options]
 options:
   -v, --version    show version
   -d, --describe   show README.md
+  -u, --usage      show SYNTAX/zh_cn.md (default), -u en shows English
   -h, --help       output this command list
   -c, --compile    auto-compile the generated .cpp with g++ after transpiling
 `;
 
 function main(argv) {
   const args = argv.slice(2);
-  const flags = { version: false, describe: false, help: false, compile: false };
+  const flags = { version: false, describe: false, usage: false, help: false, compile: false };
   const rest = [];
   for (const a of args) {
     if (a === '-v' || a === '--version') flags.version = true;
     else if (a === '-d' || a === '--describe') flags.describe = true;
+    else if (a === '-u' || a === '--usage') flags.usage = true;
     else if (a === '-h' || a === '--help') flags.help = true;
     else if (a === '-c' || a === '--compile') flags.compile = true;
     else rest.push(a);
@@ -44,9 +46,15 @@ function main(argv) {
     console.log(fs.existsSync(readme) ? fs.readFileSync(readme, 'utf8') : 'README.md not found');
     return;
   }
+  if (flags.usage) {
+    const lang = rest[0] === 'en' ? 'en_us' : rest[0] === 'zh' ? 'zh_cn' : 'zh_cn';
+    const syntax = path.join(__dirname, '..', 'SYNTAX', `${lang}.md`);
+    console.log(fs.existsSync(syntax) ? fs.readFileSync(syntax, 'utf8') : `SYNTAX/${lang}.md not found`);
+    return;
+  }
   const srcPath = rest[0];
   if (!srcPath) {
-    console.error('usage: falsecode <input.fc> [output.cpp] [-c] [-v] [-d] [-h]');
+    console.error('usage: falsecode <input.fc> [output.cpp] [-c] [-v] [-d] [-u] [-h]');
     process.exit(1);
   }
   if (!fs.existsSync(srcPath)) {

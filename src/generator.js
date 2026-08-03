@@ -32,6 +32,18 @@ function gen(ast) {
   // (queue has no clear()), keep the full type text for `q = type();`.
   const queues = new Map();
 
+  // Names declared as `set<...>`/`map<...>`: `.add()` -> `insert`,
+  // `.remove()` -> `erase`.
+  const sets = new Set();
+
+  const isSetType = (text) => /^(set|map|unordered_map)\s*</i.test(text || '');
+
+  // Scoped registry: `reg` points at the global tables outside functions,
+  // and at a per-function snapshot inside a `def` body. This way a local
+  // `arr = 0 -> int;` in F() cannot corrupt the global `arr[5] -> int;`
+  // entry used by `arr##` in main().
+  let reg = { arrays, strings, sets, queues };
+
   const isStringType = (text) => (text || '').replace(/\s+/g, '').endsWith('string');
 
   // walk the whole AST first so every custom type name is registered
@@ -167,12 +179,13 @@ function gen(ast) {
       strs.push(m);
       return `\u0000${strs.length - 1}\u0000`;
     });
-    s = s.replace(/\.add\s*\(/g, '.push_back(');
-    // `.remove(...)` -> `.pop_back()` (drop args, incl. nested parens)
-    s = s.replace(/\.remove\s*\(/g, '\u0001');
+    s = s.replace(/([A-Za-z_]\w*)\.(add|remove)\s*\(/g, '\u0002$1\u0003$2(');
     s = dropParenArgs(s);
-    s = s.replace(/([A-Za-z_]\w*)\.len\b/g, (m, nm) =>
-      strings.has(nm) ? `${nm}.length()` : `${nm}.size()`);
+    s = s.replace(/([A-Za-z_]\w*)\.len\b/g, (m, nm) => {
+      const ai = reg.arrays.get(nm);
+      if (ai && ai.kind === 'fixed') return `(sizeof(${nm}) / sizeof(${nm}[0]))`;
+      return reg.strings.has(nm) ? `${nm}.length()` : `${nm}.size()`;
+    });
     // power infix: `a ^^ b`, `(a+1) ^^ 2` -> `pow(...)`
     s = convertPower(s);
     // set-to-zero `##`: `## x` -> `(x = 0)`, `x ##` -> `(x = 0)`
@@ -184,20 +197,32 @@ function gen(ast) {
     return s.trim();
   }
 
-  // drop everything from each `\u0001` marker through its matching `)`
+  // drop everything from each `\u0002name\u0003op(` marker through its matching `)`
   function dropParenArgs(s) {
     let out = '';
     let i = 0;
     while (i < s.length) {
-      if (s[i] === '\u0001') {
+      if (s[i] === '\u0002') {
+        const end = s.indexOf('\u0003', i);
+        const nm = s.slice(i + 1, end);
+        const opEnd = s.indexOf('(', end);
+        const op = s.slice(end + 1, opEnd);
+        i = opEnd; // now at `(`
         let depth = 1;
+        const argStart = i + 1;
         i++;
         while (i < s.length && depth > 0) {
           if (s[i] === '(') depth++;
           else if (s[i] === ')') depth--;
           i++;
         }
-        out += '.pop_back()';
+        const arg = s.slice(argStart, i - 1);
+        const isSet = reg.sets.has(nm);
+        if (op === 'add') {
+          out += isSet ? `${nm}.insert(${arg})` : `${nm}.push_back(${arg})`;
+        } else {
+          out += isSet ? `${nm}.erase(${arg})` : `${nm}.pop_back()`;
+        }
       } else {
         out += s[i];
         i++;
@@ -267,29 +292,56 @@ function gen(ast) {
   }
 
   function convertPower(s) {
+    // convert inside balanced parens first (deepest first), so nested
+    // `(2 ^^ 3) ^^ 2` -> `pow(pow(2, 3), 2)` — otherwise the inner `^^`
+    // positions shift and get skipped after the outer replacement.
+    let i = 0;
+    const parts = [];
+    while (i < s.length) {
+      if (s[i] === '(') {
+        let depth = 0, close = -1;
+        for (let k = i; k < s.length; k++) {
+          if (s[k] === '(') depth++;
+          else if (s[k] === ')') {
+            depth--;
+            if (depth === 0) { close = k; break; }
+          }
+        }
+        if (close >= 0) {
+          parts.push('(' + convertPower(s.slice(i + 1, close)) + ')');
+          i = close + 1;
+          continue;
+        }
+      }
+      parts.push(s[i]);
+      i++;
+    }
+    const flat = parts.join('');
     const positions = [];
-    for (let i = 0; i + 1 < s.length; i++) {
-      if (s[i] === '^' && s[i + 1] === '^' && s[i + 2] !== '=') {
-        positions.push(i);
+    for (let j = 0; j + 1 < flat.length; j++) {
+      if (flat[j] === '^' && flat[j + 1] === '^' && flat[j + 2] !== '=') {
+        positions.push(j);
       }
     }
     // replace right-to-left so earlier positions stay valid
     for (let idx = positions.length - 1; idx >= 0; idx--) {
-      const i = positions[idx];
-      if (!(s[i] === '^' && s[i + 1] === '^')) continue;
-      let j = i - 1;
-      while (j >= 0 && s[j] === ' ') j--;
-      let k = i + 2;
-      while (k < s.length && s[k] === ' ') k++;
-      const lhsStart = j >= 0 ? scanOperandStart(s, j) : -1;
-      const rhsEnd = k < s.length ? scanOperandEnd(s, k) : -1;
+      const p = positions[idx];
+      if (!(flat[p] === '^' && flat[p + 1] === '^')) continue;
+      let j = p - 1;
+      while (j >= 0 && flat[j] === ' ') j--;
+      let k = p + 2;
+      while (k < flat.length && flat[k] === ' ') k++;
+      const lhsStart = j >= 0 ? scanOperandStart(flat, j) : -1;
+      const rhsEnd = k < flat.length ? scanOperandEnd(flat, k) : -1;
       if (lhsStart >= 0 && lhsStart <= j && rhsEnd >= k) {
-        s = s.slice(0, lhsStart) +
-          `pow(${s.slice(lhsStart, j + 1)}, ${s.slice(k, rhsEnd + 1)})` +
-          s.slice(rhsEnd + 1);
+        const lhs = flat.slice(lhsStart, j + 1);
+        const rhs = flat.slice(k, rhsEnd + 1);
+        const suffix = flat.slice(rhsEnd + 1);
+        return convertPower(flat.slice(0, lhsStart) +
+          `pow(${lhs}, ${rhs})`) + suffix;
       }
     }
-    return s;
+    return flat;
   }
 
   // raw transcription without expression rewrites
@@ -357,6 +409,51 @@ function gen(ast) {
       return { type: parts.join(' '), dims: dims.join('') };
     };
 
+    // a type annotation may carry `<>`: `x -> char<>` == `x<> -> char`
+    // (declarator suffix is redundant then); `v<>` -> `vector<v>`.
+    const parseAnnotationAngle = (typeTok) => {
+      const lt = typeTok.findIndex((t) => t.value === '<' || t.value === '<<');
+      if (lt < 0) return null;
+      const flat = typeTok.slice(lt).flatMap((t) =>
+        t.value === '<<' ? ['<', '<'] : t.value === '>>' ? ['>', '>'] : [t.value]);
+      const open = flat.filter((v) => v === '<').length;
+      const close = flat.filter((v) => v === '>').length;
+      if (!open || open !== close || flat.some((v) => v !== '<' && v !== '>')) return null;
+      return { base: typeTok.slice(0, lt).map((t) => t.value).join(' ').trim(), open };
+    };
+
+    // declaration name: the single identifier before any `[`/`<`/`=` suffix
+    const nameFrom = (slice) => {
+      let end = slice.length;
+      for (let i = 0; i < slice.length; i++) {
+        const v = slice[i].value;
+        if (v === '[' || v === '<' || v === '<<' || v === '=') { end = i; break; }
+      }
+      return declName(slice.slice(0, end));
+    };
+
+    // collect declarator array dims: `c[10]` -> `[10]`
+    const declDims = (slice) => {
+      let out = '';
+      let i = 0;
+      while (i < slice.length) {
+        if (slice[i].value === '[') {
+          let depth = 0, close = -1;
+          for (let k = i; k < slice.length; k++) {
+            if (slice[k].value === '[') depth++;
+            else if (slice[k].value === ']') {
+              depth--;
+              if (depth === 0) { close = k; break; }
+            }
+          }
+          if (close < 0) break;
+          out += `[${expNoSemi(slice.slice(i + 1, close))}]`;
+          i = close + 1;
+        } else i++;
+      }
+      return out;
+    };
+
     // `->` is a False Code type annotation only when followed by a type
     // keyword, a registered custom type, or `ns::Name`; otherwise it is
     // plain C++ member access (`p->x`).
@@ -369,12 +466,27 @@ function gen(ast) {
       const typeTok = tokens.slice(annIdx + 1);
       const typeSfx = splitTypeSuffix(typeTok);
       const typeText2 = typeSfx.type;
+      const annAngle = parseAnnotationAngle(typeTok);
+      const declLHS = tokens.slice(0, eqIdx >= 0 && eqIdx < annIdx ? eqIdx : annIdx);
+
+      // annotation `<>` wins over the declarator: `c[10] -> v<>` -> `vector<v> c[10]`
+      if (annAngle) {
+        const name = nameFrom(declLHS);
+        reg.arrays.set(name, { kind: 'vector' });
+        return `${'vector<'.repeat(annAngle.open)}${typeCpp(annAngle.base)}${'>'.repeat(annAngle.open)} ${name}${declDims(declLHS)};`;
+      }
 
       // angle-bracket dynamic array: `x<> -> T` -> vector<T>,
       // `vec<<>> -> T` -> vector<vector<T>> (`<<`/`>>` lex as shift ops)
       const ltIdx = tokens.findIndex((t) => t.value === '<' || t.value === '<<');
       if (ltIdx >= 0 && (eqIdx < 0 || ltIdx < eqIdx) && (annIdx < 0 || ltIdx < annIdx)) {
-        const name = declName(tokens.slice(0, ltIdx));
+        // annotation array suffix wins over `<>`: `v<> -> char[10]` -> `char v[10]`
+        if (typeSfx.dims) {
+          const name = nameFrom(tokens.slice(0, ltIdx));
+          reg.arrays.set(name, { kind: 'fixed' });
+          return `${typeCpp(typeText2.replace(/\s*<\s*>\s*/g, ''))} ${name}${typeSfx.dims};`;
+        }
+        const name = nameFrom(tokens.slice(0, ltIdx));
         const flat = tokens.slice(ltIdx, annIdx).flatMap((t) =>
           t.value === '<<' ? ['<', '<'] : t.value === '>>' ? ['>', '>'] : [t.value]);
         const openCount = flat.filter((v) => v === '<').length;
@@ -382,7 +494,7 @@ function gen(ast) {
         if (openCount !== closeCount || !openCount || flat.some((v) => v !== '<' && v !== '>')) {
           throw new Error(`invalid dynamic array '${name}<>': expected balanced '<' '>' pairs (e.g. x<> or vec<<>>)`);
         }
-        arrays.set(name, { kind: 'vector' });
+        reg.arrays.set(name, { kind: 'vector' });
         if (eqIdx >= 0 && eqIdx < annIdx) {
           throw new Error(`dynamic array '${name}<>' cannot take an initializer ('= ${expNoSemi(tokens.slice(eqIdx + 1, annIdx))}')`);
         }
@@ -412,12 +524,17 @@ function gen(ast) {
           ti = close + 1;
         }
         const allSizes = dims.map((d) => expNoSemi(d));
-        arrays.set(name, { kind: 'fixed' });
-        const sizeSuffix = allSizes.map((s) => `[${s}]`).join('');
-        // `i[10]=0->int;` -> `int i[10] = {0};`
+        reg.arrays.set(name, { kind: 'fixed' });
+        // annotation dims (e.g. `-> int[2][2]`) take precedence over the
+        // declarator's own brackets
+        const sizeSuffix = typeSfx.dims
+          ? typeSfx.dims
+          : allSizes.map((s) => `[${s}]`).join('');
+        // `i[10]=0->int;` -> `int i[10] = {0};` (already-braced init kept as-is)
         if (eqIdx >= 0 && eqIdx < annIdx) {
           const initVal = expNoSemi(tokens.slice(eqIdx + 1, annIdx));
-          return `${typeCpp(typeText2)} ${name}${sizeSuffix} = {${initVal}};`;
+          const initText = /^\s*\{/.test(initVal) ? initVal : `{${initVal}}`;
+          return `${typeCpp(typeText2)} ${name}${sizeSuffix} = ${initText};`;
         }
         return `${typeCpp(typeText2)} ${name}${sizeSuffix};`;
       }
@@ -426,18 +543,22 @@ function gen(ast) {
       if (eqIdx >= 0 && eqIdx < annIdx) {
         const lhs = declName(tokens.slice(0, eqIdx));
         const val = expNoSemi(tokens.slice(eqIdx + 1, annIdx));
-        arrays.delete(lhs);
-        if (isStringType(typeText2)) strings.add(lhs);
-        if (typeSfx.dims) arrays.set(lhs, { kind: 'fixed' });
+        reg.arrays.delete(lhs);
+        reg.sets.delete(lhs);
+        if (isStringType(typeText2)) reg.strings.add(lhs);
+        if (isSetType(typeText2)) reg.sets.add(lhs);
+        if (typeSfx.dims) reg.arrays.set(lhs, { kind: 'fixed' });
         return `${typeCpp(typeText2)} ${lhs}${typeSfx.dims} = ${val};`;
       }
       // `x -> T`
       const lhs = declName(tokens.slice(0, annIdx));
-      arrays.delete(lhs);
-      strings.delete(lhs);
-      queues.delete(lhs);
-      if (isStringType(typeText2)) strings.add(lhs);
-      if (/^queue\s*</i.test(typeText2)) queues.set(lhs, typeText2);
+      reg.arrays.delete(lhs);
+      reg.strings.delete(lhs);
+      reg.queues.delete(lhs);
+      reg.sets.delete(lhs);
+      if (isStringType(typeText2)) reg.strings.add(lhs);
+      if (/^queue\s*</i.test(typeText2)) reg.queues.set(lhs, typeText2);
+      if (isSetType(typeText2)) reg.sets.add(lhs);
       return `${typeCpp(typeText2)} ${lhs}${typeSfx.dims};`;
     }
 
@@ -451,18 +572,18 @@ function gen(ast) {
     // set-to-zero operator `##`  (no backslash prefix needed)
     const zeroIdx = tokens.findIndex((t) => t.value === '##');
     if (zeroIdx >= 0 && isPureLvalueCtx(tokens, zeroIdx)) {
-      const strReset = (name) => strings.has(name) ? `${name}.clear();` : null;
-      const queReset = (name) => queues.has(name) ? `${name} = ${queues.get(name)}();` : null;
+      const strReset = (name) => reg.strings.has(name) ? `${name}.clear();` : null;
+      const queReset = (name) => reg.queues.has(name) ? `${name} = ${reg.queues.get(name)}();` : null;
       if (zeroIdx === 0) {
         // prefix form: `##i` -> `i = 0;`  (analogous to `++i` / `--i`)
         const rhs = expNoSemi(tokens.slice(1));
-        const info = arrays.get(rhs);
+        const info = reg.arrays.get(rhs);
         if (info && info.kind === 'fixed') return `memset(${rhs}, 0, sizeof(${rhs}));`;
         if (info && info.kind === 'vector') return `${rhs}.assign(${rhs}.size(), 0);`;
         return strReset(rhs) || queReset(rhs) || `${rhs} = 0;`;
       }
       const lhs = tokens.slice(0, zeroIdx).map((t) => t.value).join('');
-      const info = arrays.get(lhs);
+      const info = reg.arrays.get(lhs);
       if (info && info.kind === 'fixed') return `memset(${lhs}, 0, sizeof(${lhs}));`;
       if (info && info.kind === 'vector') return `${lhs}.assign(${lhs}.size(), 0);`;
       return strReset(lhs) || queReset(lhs) || `${lhs} = 0;`;
@@ -697,7 +818,17 @@ function gen(ast) {
       case 'stmt': {
         if (node.body) {
           emit(`${p}${expNoSemi(fixCppParams(node.tokens))} {`);
+          // bare `{}` block: C++ local scope — declarations inside must not
+          // leak into the enclosing function's registry
+          const savedReg = reg;
+          reg = {
+            arrays: new Map(reg.arrays),
+            strings: new Set(reg.strings),
+            sets: new Set(reg.sets),
+            queues: new Map(reg.queues),
+          };
           genBlock(node.body, indent + 1);
+          reg = savedReg;
           emit(`${p}}`);
         } else {
           emit(`${p}${stmtCpp(squeezeSemi(node.tokens))}`);
@@ -845,7 +976,11 @@ function gen(ast) {
             if (pp.array) return pp.size ? `${t} ${pp.name}[${pp.size}]` : `vector<${t}> ${pp.name}`;
             return `${t} ${pp.name}`;
           }).join(', ');
-          const ret = isMain ? 'int' : (node.ret.length ? typeCpp(expNoSemi(node.ret)) : 'void');
+          // ret is unknown from the declaration alone; use the later
+          // definition's inferred return type when available
+          const ret = isMain ? 'int'
+            : (node.ret.length ? typeCpp(expNoSemi(node.ret))
+              : (defRet.get(node.name) || 'void'));
           emit(`${p}${ret} ${node.name}(${params});`);
           return;
         }
@@ -854,18 +989,19 @@ function gen(ast) {
           if (pp.name === 'argv') return 'char** argv';
           const t = plainType(pp.type) || 'int';
           if (pp.nesting) {
-            arrays.set(pp.name, { kind: 'vector' });
+            reg.arrays.set(pp.name, { kind: 'vector' });
             return `${'vector<'.repeat(pp.nesting)}${t}${'>'.repeat(pp.nesting)} ${pp.name}`;
           }
           if (pp.array) {
             if (pp.size) {
-              arrays.set(pp.name, { kind: 'fixed' });
+              reg.arrays.set(pp.name, { kind: 'fixed' });
               return `${t} ${pp.name}[${pp.size}]`;
             }
-            arrays.set(pp.name, { kind: 'vector' });
+            reg.arrays.set(pp.name, { kind: 'vector' });
             return `vector<${t}> ${pp.name}`;
           }
-          if (isStringType(pp.type)) strings.add(pp.name);
+          if (isStringType(pp.type)) reg.strings.add(pp.name);
+          if (isSetType(pp.type)) reg.sets.add(pp.name);
           return `${t} ${pp.name}`;
         }).join(', ');
         const ret = isMain
@@ -875,7 +1011,15 @@ function gen(ast) {
             : (hasReturnValue(node.body) ? 'int' : 'void'));
         const fname = isMain ? 'main' : node.name;
         emit(`${p}${ret} ${fname}(${params}) {`);
+        const savedReg = reg;
+        reg = {
+          arrays: new Map(reg.arrays),
+          strings: new Set(reg.strings),
+          sets: new Set(reg.sets),
+          queues: new Map(reg.queues),
+        };
         genBlock(node.body, indent + 1);
+        reg = savedReg;
         if (isMain && !hasReturn(node.body)) emit(`${p}  return 0;`);
         emit(`${p}}`);
         return;
@@ -884,6 +1028,18 @@ function gen(ast) {
         throw new Error(`unknown node kind: ${node.kind}`);
     }
   }
+
+  // forward declarations (`Def f(...);`) need the return type of the later
+  // definition, so pre-scan the whole AST for each function's inferred ret
+  const defRet = new Map();
+  (function collectDefs(stmts) {
+    for (const s of stmts) {
+      if (s.kind === 'def' && s.name && s.body && !defRet.has(s.name)) {
+        defRet.set(s.name, hasReturnValue(s.body) ? 'int' : 'void');
+      }
+      for (const b of childBodies(s)) collectDefs(b);
+    }
+  })(ast);
 
   genBlock(ast, 0);
   return HEADER + '\n\n' + lines.join('\n') + '\n';

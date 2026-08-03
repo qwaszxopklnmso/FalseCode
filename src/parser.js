@@ -127,7 +127,10 @@ function parse(sourceText) {
 
   // turn a token slice into a standalone statement node (inline `Then`)
   function emitSingle(tokens) {
-    const w = words(tokens).filter((t) => t.value !== '?');
+    const w0 = words(tokens);
+    // a trailing `?` is a Python-style header terminator; a mid-expression
+    // `?` is a ternary and must be kept
+    const w = w0.length && lastOf(w0).value === '?' ? w0.slice(0, -1) : w0;
     if (!w.length) return { kind: 'empty' };
     const k = w[0].value.toLowerCase();
     const rest = w.slice(1);
@@ -265,6 +268,11 @@ function parse(sourceText) {
     }
     // preprocessor lines (#define, #include, ...) pass through verbatim
     if (toks[0].value === '#') {
+      stmts.push({ kind: 'raw', text: l.text });
+      return;
+    }
+    // template header lines pass through verbatim (adding `;` breaks them)
+    if (toks[0].value === 'template') {
       stmts.push({ kind: 'raw', text: l.text });
       return;
     }
@@ -409,7 +417,9 @@ function parse(sourceText) {
       node.then.inline = false;
     }
     // chain elif / else at the same indent
+    const inlineHead = node.then.inline === true;
     while (!atEnd()) {
+      const chainStart = pos;
       let n = peek();
       if (isCommentLine(n)) { pos++; continue; }
       // `} Else {` / `} Elif ...` on one line: the `}` closes the previous
@@ -417,16 +427,26 @@ function parse(sourceText) {
       const w0 = words(n.tokens);
       let consumed = false;
       if (w0.length > 1 && w0[0].value === '}') {
+        if (inlineHead) break; // an inline `if (c) stmt;` has no block to close
         pos++;
         n = { tokens: w0.slice(1), indent: n.indent, lineNo: n.lineNo };
         consumed = true;
       } else if (isCloseOnly(n)) {
+        if (inlineHead) break;
         pos++;
         continue;
       }
       const nk = kw(n);
-      if (nk !== 'elif' && nk !== 'else') break;
-      if (n.indent !== l.indent) break;
+      if (nk !== 'elif' && nk !== 'else') {
+        // nothing of this if-chain followed; give the skipped lines back
+        // (a bare `}` may be the enclosing block's closer, not ours)
+        if (node.els === null && node.elifs.length === 0) pos = chainStart;
+        break;
+      }
+      if (n.indent !== l.indent) {
+        if (node.els === null && node.elifs.length === 0) pos = chainStart;
+        break;
+      }
       if (!consumed) pos++;
       if (nk === 'elif') {
         const e = read(n);
@@ -434,6 +454,15 @@ function parse(sourceText) {
         then.inline = !!e.inline;
         node.elifs.push({ cond: e.cond, then });
       } else {
+        // `else if (cond) stmt;` is an elif chain, not a final else
+        const etoks = words(n.tokens).slice(1);
+        if (etoks.length && etoks[0].value.toLowerCase() === 'if') {
+          const e = read({ tokens: etoks, indent: n.indent, lineNo: n.lineNo });
+          const then = e.inline ? [e.inline] : readBlock(n.indent);
+          then.inline = !!e.inline;
+          node.elifs.push({ cond: e.cond, then });
+          continue;
+        }
         node.els = parseElseBody(n);
       }
     }

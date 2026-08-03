@@ -1,0 +1,38 @@
+struct score {
+unsigned short k, s;
+};
+Def score_cmp(x -> score, y -> score) -> bool {
+	If x.s ^ y.s Then Return x.s < y.s;
+	Return x.k > y.k;
+}
+n = 0 -> uint16_t;
+m = 0 -> uint16_t;
+score_line = 0 -> uint16_t;
+T_Sign = 0b1000000000000000 -> uint16_t;
+mscore[5005] -> score;
+Def Main() {
+	In to n, m;
+	If (score_line = (uint16_t)floor(1.5 * m)) > n || n > 5000 || m > 5000 {
+		Out "????????!?!?!?!??!", Nl;
+		Die;
+	}
+	For i = 0 -> uint16_t; i < n; ++i {
+		In to mscore[i].k, mscore[i].s;
+	}
+	stable_sort(mscore, mscore + n, score_cmp);
+	lst_scoreln = 0 -> uint16_t;
+	tot = 0 -> uint16_t;
+	For i = 0 -> uint16_t; i < n; ++i {
+		j = n - i - 1 -> uint16_t;
+		If i + 1 == score_line Then lst_scoreln = mscore[j].s;
+		If (i + 1 > score_line) && (lst_scoreln ^ mscore[j].s) Then Continue;
+		++tot;
+		mscore[j].k |= T_Sign;
+	}
+	Out lst_scoreln, " ", tot, Nl;
+	For i = 0 -> uint16_t; i < n; ++i {
+		j = n - i - 1 -> uint16_t;
+		If mscore[j].k & T_Sign Then Out mscore[j].k ^ T_Sign, " ", mscore[j].s, Nl;
+	}
+	Return 0;
+}

@@ -1,39 +1,37 @@
-#include <bits/stdc++.h>
-using namespace std;
-
-int MakePal(int x) {
-  int r = x;
-  int t = x / 10;
-  while (t > 0) r = r * 10 + t % 10, t = t / 10;
-  return r;
+Def MakePal(x -> int) -> int {
+	r = x -> int;
+	t = x / 10 -> int;
+	While t > 0 {
+		r = r * 10 + t % 10;
+		t = t / 10;
+	}
+	Return r;
 }
-bool IsPrime(int x) {
-  if (x < 2) return false;
-  int i = 2;
-  while (i * i <= x) {
-    if (x % i == 0) return false;
-    i ++;
-  }
-  return true;
+Def IsPrime(x -> int) -> bool {
+	If x < 2 Then Return false;
+	i = 2 -> int;
+	While i * i <= x {
+		If x % i == 0 Then Return false;
+		++i;
+	}
+	Return true;
 }
-int main() {
-  freopen ("P1217.in", "r", stdin);
-  freopen ("P1217.out", "w", stdout);
-  int a = 0;
-  int b = 0;
-  cin >> a >> b;
-  int prefix = 1;
-  while (prefix <= 9) {
-    int pal = MakePal (prefix);
-    if (pal >= a && pal <= b && IsPrime (pal)) cout << (pal) << endl;
-    prefix = prefix + 1;
-  }
-  if (11 >= a && 11 <= b) cout << (11) << endl;
-  prefix = 10;
-  while (prefix <= 9999) {
-    int pal = MakePal (prefix);
-    if (pal >= a && pal <= b && IsPrime (pal)) cout << (pal) << endl;
-    prefix = prefix + 1;
-  }
-  return 0;
+Def Main() {
+	a = 0 -> int;
+	b = 0 -> int;
+	In to a, b;
+	prefix = 1 -> int;
+	While prefix <= 9 {
+		pal = MakePal(prefix) -> int;
+		If pal >= a && pal <= b && IsPrime(pal) Then Out pal, Nl;
+		++prefix;
+	}
+	If 11 >= a && 11 <= b Then Out 11, Nl;
+	prefix = 10;
+	While prefix <= 9999 {
+		pal = MakePal(prefix) -> int;
+		If pal >= a && pal <= b && IsPrime(pal) Then Out pal, Nl;
+		++prefix;
+	}
+	Return 0;
 }
