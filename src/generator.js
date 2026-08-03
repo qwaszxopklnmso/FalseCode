@@ -505,6 +505,44 @@ function gen(ast) {
       /^[A-Za-z_][A-Za-z_0-9]*$/.test(t.value) || t.value === '.');
   }
 
+  // C++-style function headers with False Code annotations in the params:
+  // `void pr(int n -> int) {` -> `void pr(int n) {`, `(n -> int)` -> `(int n)`.
+  // Only touches the first top-level `(...)` group; `p->x` inside stays put.
+  function fixCppParams(tokens) {
+    let open = -1, depth = 0;
+    for (let i = 0; i < tokens.length; i++) {
+      const v = tokens[i].value;
+      if (v === '(' && depth === 0) { open = i; break; }
+    }
+    if (open < 0) return tokens;
+    let close = -1;
+    depth = 0;
+    for (let i = open; i < tokens.length; i++) {
+      const v = tokens[i].value;
+      if (v === '(') depth++;
+      else if (v === ')') { depth--; if (depth === 0) { close = i; break; } }
+    }
+    if (close < 0) return tokens;
+    const head = tokens.slice(0, open);
+    const inner = tokens.slice(open + 1, close);
+    const tail = tokens.slice(close + 1);
+    const groups = splitComma(inner);
+    const fixed = groups.map((g) => {
+      const ann = g.findIndex((t, i) => t.value === '->' && isTypeLike(g, i));
+      if (ann < 0) return g;
+      const typeText = g.slice(ann + 1).map((t) => t.value).join(' ');
+      const pre = g.slice(0, ann);
+      const first = pre[0];
+      const isPreTyped = first && first.type === 'word' &&
+        (TYPE_WORD.test(first.value) || typeNames.has(first.value));
+      if (isPreTyped) return pre;                 // `int n -> int` -> `int n`
+      return [{ type: 'word', value: typeCpp(typeText) }].concat(pre); // `n -> int` -> `int n`
+    });
+    return head.concat([{ type: 'op', value: '(' }],
+      fixed.flatMap((g, i) => (i ? [{ type: 'op', value: ',' }] : []).concat(g)),
+      [{ type: 'op', value: ')' }], tail);
+  }
+
   // Single-line C++ for an inline `Then` statement, or null if it needs a block.
   function inlineStmt(node) {
     if (!node) return null;
@@ -582,7 +620,7 @@ function gen(ast) {
     switch (node.kind) {
       case 'stmt': {
         if (node.body) {
-          emit(`${p}${expNoSemi(node.tokens)} {`);
+          emit(`${p}${expNoSemi(fixCppParams(node.tokens))} {`);
           genBlock(node.body, indent + 1);
           emit(`${p}}`);
         } else {
@@ -723,6 +761,18 @@ function gen(ast) {
       case 'def': {
         const isMain = node.name.toLowerCase() === 'main';
         const plainType = (s) => typeCpp((s || '').replace(/\[[^\]]*\]/g, '').trim());
+        // forward declaration: `def g() -> int;` -> `int g(params);`
+        if (node.body === null) {
+          const params = node.params.map((pp) => {
+            const t = plainType(pp.type) || 'int';
+            if (pp.nesting) return `${'vector<'.repeat(pp.nesting)}${t}${'>'.repeat(pp.nesting)} ${pp.name}`;
+            if (pp.array) return pp.size ? `${t} ${pp.name}[${pp.size}]` : `vector<${t}> ${pp.name}`;
+            return `${t} ${pp.name}`;
+          }).join(', ');
+          const ret = isMain ? 'int' : (node.ret.length ? typeCpp(expNoSemi(node.ret)) : 'void');
+          emit(`${p}${ret} ${node.name}(${params});`);
+          return;
+        }
         const params = node.params.map((pp) => {
           if (pp.name === 'argc') return 'int argc';
           if (pp.name === 'argv') return 'char** argv';

@@ -63,9 +63,9 @@ falsecode hello.fc          # 等价于 node src/main.js hello.fc
 ```
 src/         转译器(lexer → parser → generator → CLI)
 bin/fc.js    全局命令入口
-tests/       端到端测试(fixtures: *.fc + 期望输出 *.out)
+tests/       短代码测试 (端到端测试(fixtures: *.fc + 期望输出 *.out))
 example/     示例程序
-problems_test/  用 False Code 写的题目题解(洛谷/一本通等)
+problems_test/  长代码测试 (用 False Code 写的题目题解(洛谷/一本通等))
 First.md     语言规范(唯一权威参考)
 ```
 

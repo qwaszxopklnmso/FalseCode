@@ -141,6 +141,17 @@ function parse(sourceText) {
       case 'out':
       case 'output': return { kind: 'out', tokens: rest };
       case 'input': return { kind: 'input', tokens: rest };
+      case 'if': {
+        // same-line `If cond Then stmt` (nested inside a `Then` body):
+        // `While x < n Then If y < m Then Out ...;`
+        const thenIdx = rest.findIndex((t) => t.value.toLowerCase() === 'then');
+        const end = thenIdx >= 0 ? thenIdx : rest.length;
+        const cond = rest.slice(0, end);
+        const body = emitSingle(rest.slice(thenIdx >= 0 ? thenIdx + 1 : 0));
+        const b = [body];
+        b.inline = true;
+        return { kind: 'if', cond, then: b, elifs: [], els: null };
+      }
       default: return { kind: 'stmt', tokens: w };
     }
   }
@@ -600,29 +611,37 @@ function parse(sourceText) {
         };
       });
     // remaining header tokens: possibly `-> RetType`, then `{`/`:`/`?`
+    // a trailing `;` means a pure forward declaration (`def g() -> int;`)
     let ret = [];
     let h = tail;
+    let declareOnly = false;
+    if (h.length && h[h.length - 1].value === ';') {
+      declareOnly = true;
+      h = h.slice(0, -1);
+    }
     while (h.length && !['{', ':', '?'].includes(h[0].value)) {
       const t = h.shift();
       if (t.value === '->') continue;
       ret.push(t);
     }
-    let body;
-    if (h.length && h[0].value === '{') {
-      // inline body on the same line: `def f(...) { stmt; stmt; }`
-      // (a lone `{` or `{ }` means the body follows on indented lines)
-      let inner = h.slice(1);
-      const last = inner[inner.length - 1];
-      if (last && last.value === '}') inner = inner.slice(0, -1);
-      if (inner.some((t) => t.value !== ';')) {
-        body = splitTopSemi(inner)
-          .filter((g) => g.length)
-          .map((g) => emitSingle(g));
+    let body = null;
+    if (!declareOnly) {
+      if (h.length && h[0].value === '{') {
+        // inline body on the same line: `def f(...) { stmt; stmt; }`
+        // (a lone `{` or `{ }` means the body follows on indented lines)
+        let inner = h.slice(1);
+        const last = inner[inner.length - 1];
+        if (last && last.value === '}') inner = inner.slice(0, -1);
+        if (inner.some((t) => t.value !== ';')) {
+          body = splitTopSemi(inner)
+            .filter((g) => g.length)
+            .map((g) => emitSingle(g));
+        } else {
+          body = readBlock(l.indent);
+        }
       } else {
         body = readBlock(l.indent);
       }
-    } else {
-      body = readBlock(l.indent);
     }
     stmts.push({ kind: 'def', name, params, ret, body });
   }

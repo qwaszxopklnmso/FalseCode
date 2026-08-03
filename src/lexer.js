@@ -120,6 +120,8 @@ function tokenizeLine(line) {
                ((line[j] === '+' || line[j] === '-') && j > i &&
                 (line[j - 1] === 'e' || line[j - 1] === 'E')))) j++;
       }
+      // numeric suffix: 9223372036854775807LL, 3.14f, 123u, 0x1fULL
+      while (j < n && /[uUlLfF]/.test(line[j])) j++;
       tokens.push({ type: TOKEN_TYPES.NUM, value: line.slice(i, j) });
       i = j;
       continue;
