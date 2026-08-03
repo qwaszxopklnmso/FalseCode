@@ -45,6 +45,18 @@ node tests/run.js
 >    ```
 >    无需管理员权限;查看当前策略:`Get-ExecutionPolicy -Scope CurrentUser`。
 
+## 通过 npm 下载（简单）
+
+直接安装全局命令，无需 clone 仓库，不含测试数据：
+
+```bash
+npm install -g @qwaszxopklnm/falsecode
+falsecode -v                    # 验证安装(输出版本号)
+falsecode hello.fc -c           # 转译 + 编译
+```
+
+> 备注：npm 包只含转译器本体（`src/`、`bin/`、语法文档），**不含测试数据**（tests / problems_test / example 等需从 GitHub 仓库获取）。
+
 ## 安装为全局命令
 
 注册全局 `falsecode` 命令后,任意目录都能用:
