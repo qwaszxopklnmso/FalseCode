@@ -11,14 +11,5 @@ struct node {
 	}
 }a[105];
 Def Main() {
-	n = 0 -> int;
-	In to n;
-	For i = 1 -> int; i <= n; ++i {
-		In to a[i].id, a[i].age;
-	}
-	stable_sort(a + 1, a + n + 1);
-	For i = 1 -> int; i <= n; ++i {
-		Out a[i].id, Nl;
-	}
 	Return 0;
 }

@@ -1,7 +1,7 @@
 Def Main() {
-	Out "hello, false code";
-	Out Nl;
-	Out 42;
-	Out Nl;
+	Output "hello, false code";
+	Output Nl;
+	Output 42;
+	Output Nl;
 	Return 0;
 }

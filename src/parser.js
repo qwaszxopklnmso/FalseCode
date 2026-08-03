@@ -344,6 +344,37 @@ function parse(sourceText) {
           }
           const start = pos;
           pos++;
+          // struct members may be False Code (`id -> string;`) or raw C++
+          // (`bool operator < (…) const {`). A trailing `{` on a non-keyword
+          // header is a C++ block opener — emit it verbatim, then parse its
+          // brace-balanced body lines as False Code (so `If … ?` inside an
+          // operator body still gets converted).
+          const nk0 = (words(n.tokens)[0] || {}).value || '';
+          const lastTok = lastOf(words(n.tokens));
+          if (lastTok && lastTok.value === '{' &&
+              !['if', 'elif', 'else', 'while', 'for', 'switch', 'case', 'default', 'do', 'def'].includes(nk0.toLowerCase())) {
+            stmts.push({ kind: 'raw', text: n.text });
+            let bd = 1;
+            while (!atEnd() && bd > 0) {
+              const m = peek();
+              const mw = words(m.tokens);
+              const m0 = mw.length ? mw[0].value : '';
+              if (m0 === '}') {
+                // closing of this brace block (operator body or `}a[105];`)
+                stmts.push({ kind: 'raw', text: m.text });
+                pos++;
+                bd--;
+                break;
+              }
+              if (isCloseOnly(m)) { stmts.push({ kind: 'raw', text: m.text }); pos++; bd--; continue; }
+              const mstart = pos;
+              pos++;
+              parseLine(m, stmts);
+              for (let i = mstart; i < pos; i++) bd += braceDelta(lines[i].tokens);
+            }
+            for (let i = start; i < pos; i++) depth += braceDelta(lines[i].tokens);
+            continue;
+          }
           parseLine(n, stmts);
           // parseLine may consume several lines (block bodies); count the
           // braces of every line it consumed so depth stays accurate.

@@ -1,5 +1,5 @@
 struct score {
-unsigned short k, s;
+	unsigned short k, s;
 };
 Def score_cmp(x -> score, y -> score) -> bool {
 	If x.s ^ y.s Then Return x.s < y.s;
