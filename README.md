@@ -21,7 +21,7 @@ node src/main.js -c hello.fc       # 转译后用 g++ 自动编译 (--compile)
 node tests/run.js
 ```
 
-> Windows / PowerShell 提示:PowerShell 的默认执行策略会拦截 npm 的 `.ps1` 包装脚本(表现为 `npm test` 报 "无法加载 npm.ps1"),但 `.cmd` 版本不受影响。在本机验证可行的两种方式:
+> Windows / PowerShell 提示:PowerShell 的默认执行策略会拦截 npm 的 `.ps1` 包装脚本(表现为 `npm test` 报 "无法加载 npm.ps1"),但 `.cmd` 版本不受影响。已验证可行的两种方式:
 >
 > 1. 直接调用 `.cmd` 版本:`npm.cmd test`、`falsecode.cmd <in.fc>`
 > 2. 放开当前用户的脚本执行策略(推荐,之后 `npm`/`falsecode` 都能直接用):
@@ -39,7 +39,7 @@ npm link
 falsecode hello.fc          # 等价于 node src/main.js hello.fc
 ```
 
-`npm link` 会在全局目录生成 `falsecode.cmd` / `falsecode.ps1` 等包装脚本(本机为 `C:\Users\<用户名>\AppData\Roaming\npm\`)。命令名特意取 `falsecode` 而非 `fc`,因为 PowerShell 内置了 `fc` 这个别名。
+`npm link` 会在 npm 全局目录(如 `C:\Users\<用户名>\AppData\Roaming\npm\`)生成 `falsecode.cmd` / `falsecode.ps1` 等包装脚本。命令名特意取 `falsecode` 而非 `fc`,因为 PowerShell 内置了 `fc` 这个别名。
 
 ## 在新电脑上使用(clone 后)
 
