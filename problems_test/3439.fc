@@ -1,65 +1,70 @@
-template<class InputT1> void read(InputT1& input_x) {
-	input_x = 0;
-	char tmp_c;
-	bool isNegative = false;
-	do {
-		tmp_c = getchar();
-	} While (tmp_c < '0' || tmp_c > '9') && (tmp_c != '-');
-	If tmp_c == '-' Then tmp_c = '0', isNegative = true;
-	do {
-		input_x = input_x * 10 + (tmp_c ^ '0');
-		tmp_c = getchar();
-	} While tmp_c >= '0' && tmp_c <= '9';
-	If isNegative Then input_x = ~input_x + 1;
-	Return;
+#include <bits/stdc++.h>
+using namespace std;
+
+template < class InputT1 > void read (InputT1 & input_x) {
+  input_x = 0;
+  char tmp_c;
+  bool isNegative = false;
+  do {
+    tmp_c = getchar ();
+  }
+  while ((tmp_c < '0' || tmp_c > '9') && (tmp_c != '-'));
+  if (tmp_c == '-') tmp_c = '0', isNegative = true;
+  do {
+    input_x = input_x * 10 + (tmp_c ^ '0');
+    tmp_c = getchar ();
+  }
+  while (tmp_c >= '0' && tmp_c <= '9');
+  if (isNegative) input_x = ~ input_x + 1;
+  return ;
 }
 struct score {
-	unsigned short k, s;
+unsigned short k, s;
 };
-[[nodiscard]] inline bool score_cmp(score x, score y) {
-	If x.s ^ y.s Then Return x.s < y.s;
-	Return x.k > y.k;
+[[nodiscard]] inline bool score_cmp (score x, score y) {
+  if (x.s ^ y.s) return x.s < y.s;
+  return x.k > y.k;
 }
 unsigned short n, m, score_line;
 score mscore[5005];
-[[nodiscard]] inline uint16_t get_reserve(uint16_t x) {
-	Return n - x - 1;
+[[nodiscard]] inline uint16_t get_reserve (uint16_t x) {
+  return n - x - 1;
 }
 const uint16_t T_Sign = 0b1000000000000000;
-Def Main() {
-	read(n);
-	read(m);
-	If (score_line = floor(1.5 * m)) > n || n > 5000 || m > 5000 {
-		printf("????????!?!?!?!??!\n");
-		While 1 + 1 == 3 {
-			try {
-				throw 114514;
-			}
-			catch (const char* c) {
-				cout << c;
-			}
-		}
-		throw 114514;
-		Return 0xffffffa;
-	}
-	For i = 0 -> uint16_t; i < n; ++i {
-		read(mscore[i].k);
-		read(mscore[i].s);
-	}
-	stable_sort(mscore, mscore + n, score_cmp);
-	lst_scoreln = 0 -> uint16_t;
-	tot = 0 -> uint16_t;
-	For i = 0 -> uint16_t; i < n; ++i {
-		j = get_reserve(i) -> uint16_t;
-		If i + 1 == score_line Then lst_scoreln = mscore[j].s;
-		If (i + 1 > score_line) && (lst_scoreln ^ mscore[j].s) Then Continue;
-		tot = tot + 1;
-		mscore[j].k |= T_Sign;
-	}
-	printf("%d %d\n", lst_scoreln, tot);
-	For i = 0 -> uint16_t; i < n; ++i {
-		j = get_reserve(i) -> uint16_t;
-		If mscore[j].k & T_Sign Then printf("%d %d\n", mscore[j].k ^ T_Sign, mscore[j].s);
-	}
-	Return 0;
+int main() {
+  read (n);
+  read (m);
+  if ((score_line = floor (1.5 * m)) > n || n > 5000 || m > 5000) {
+    printf ("????????!?!?!?!??!\n");
+    while (1 + 1 == 3) {
+      try {
+        throw 114514;
+      }
+      catch (const char * c) {
+        cout << c;
+      }
+    }
+    throw 114514;
+    return 0xffffffa;
+  }
+  for (uint16_t i = 0; i < n; ++ i) {
+    read (mscore[i].k);
+    read (mscore[i].s);
+  }
+  stable_sort (mscore, mscore + n, score_cmp);
+  uint16_t lst_scoreln = 0;
+  uint16_t tot = 0;
+  for (uint16_t i = 0; i < n; ++ i) {
+    uint16_t j = get_reserve (i);
+    if (i + 1 == score_line) lst_scoreln = mscore[j].s;
+    if ((i + 1 > score_line) && (lst_scoreln ^ mscore[j].s)) continue;
+    tot = tot + 1;
+    mscore[j].k |= T_Sign;
+  }
+  printf ("%d %d\n", lst_scoreln, tot);
+  for (uint16_t i = 0; i < n; ++ i) {
+    uint16_t j = get_reserve (i);
+    if (mscore[j].k & T_Sign) printf ("%d %d\n", mscore[j].k ^ T_Sign, mscore[j].s);
+  }
+  return 0;
 }

@@ -1,29 +1,31 @@
-def Gcd(x -> int, y -> int) -> int {
-	While y > 0 {
-		t = x % y -> int;
-		x = y;
-		y = t;
-	}
-	Return x;
-}
+#include <bits/stdc++.h>
+using namespace std;
 
-Def Main() {
-	freopen("T585079.in", "r", stdin);
-	freopen("T585079.out", "w", stdout);
-	n = 0 -> int;
-	In to n;
-	ans = 0 -> int;
-	For (c = 1 -> int; c <= n; ++c) {
-		For (b = c + 1 -> int; b <= n; ++b) {
-			den = b - c -> int;
-			num = b * c -> int;
-			If num % den == 0 {
-				a = num / den -> int;
-				If a > b && a <= n && Gcd(Gcd(a, b), c) == 1 Then ans = ans + 1;
-			}
-		}
-	}
-	Out ans;
-	Out Nl;
-	Return 0;
+int Gcd(int x, int y) {
+  while (y > 0) {
+    int t = x % y;
+    x = y;
+    y = t;
+  }
+  return x;
+}
+int main() {
+  freopen ("T585079.in", "r", stdin);
+  freopen ("T585079.out", "w", stdout);
+  int n = 0;
+  cin >> n;
+  int ans = 0;
+  for (int c = 1; c <= n; ++ c) {
+    for (int b = c + 1; b <= n; ++ b) {
+      int den = b - c;
+      int num = b * c;
+      if (num % den == 0) {
+        int a = num / den;
+        if (a > b && a <= n && Gcd (Gcd (a, b), c) == 1) ans = ans + 1;
+      }
+    }
+  }
+  cout << (ans);
+  cout << endl;
+  return 0;
 }

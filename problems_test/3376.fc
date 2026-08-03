@@ -1,3 +1,6 @@
+#include <bits/stdc++.h>
+using namespace std;
+
 string xtmpx[105];
 uint16_t mp[105][105];
 int16_t rmap[3 * 3 - 1][2] = {
@@ -6,60 +9,59 @@ int16_t rmap[3 * 3 - 1][2] = {
 	{-1,1},{0,1},{1,1}
 };
 int n, m, mainlyx, mainlyy;
-bool check(int x, int y) {
-	if (x >= n || x < 0) return false;
-	if (y >= m || y < 0) return false;
-	return true;
+bool check (int x, int y) {
+  if (x >= n || x < 0) return false;
+  if (y >= m || y < 0) return false;
+  return true;
 }
-void Tnt(int x, int y) {
-	int tx, ty;
-	if (!check(x, y)) return;
-	if (mp[x][y]) mp[x][y] = 2;
-	for (int i = 0; i < 8; i++) {
-		tx = x + rmap[i][0], ty = y + rmap[i][1];
-#ifdef Logout
-		clog << x << '/' << y << ':' << tx << ' ' << ty << endl;
-#endif
-		if (!check(tx, ty)) continue;
-		if (mp[tx][ty] == 2) continue;
-		if (mp[tx][ty] == 1) Tnt(tx, ty);
-		if (mp[tx][ty] == 0) mp[tx][ty] = 2;
-	}
-	return;
+void Tnt (int x, int y) {
+  int tx, ty;
+  if (! check (x, y)) return ;
+  if (mp[x][y]) mp[x][y] = 2;
+  for (int i = 0; i < 8; i ++) {
+    tx = x + rmap[i][0], ty = y + rmap[i][1];
+    #ifdef Logout
+    clog << x << '/' << y << ':' << tx << ' ' << ty << endl;
+    #endif
+    if (! check (tx, ty)) continue;
+    if (mp[tx][ty] == 2) continue;
+    if (mp[tx][ty] == 1) Tnt (tx, ty);
+    if (mp[tx][ty] == 0) mp[tx][ty] = 2;
+  }
+  return ;
 }
-void PrintMap() {
-	for (int i = 0; i < n; i++) {
-		for (int j = 0; j < m; j++) {
-			cout << mp[i][j];
-		}
-		puts("");
-	}
-	return;
+void PrintMap () {
+  for (int i = 0; i < n; i ++) {
+    for (int j = 0; j < m; j ++) {
+      cout << mp[i][j];
+    }
+    puts ("");
+  }
+  return ;
 }
-void DebugPrintMap(int x,int y) {
-	for (int i = 0; i < n; i++) {
-		for (int j = 0; j < m; j++) {
-			if (x == i && y == j) {
-				cout << "\033[31m" << mp[i][j] << "\033[0m";
-				continue;
-			}
-			cout << mp[i][j];
-		}
-		//puts("");
-		cout << '\n';
-	}
-	return;
+void DebugPrintMap (int x, int y) {
+  for (int i = 0; i < n; i ++) {
+    for (int j = 0; j < m; j ++) {
+      if (x == i && y == j) {
+        cout << "\033[31m" << mp[i][j] << "\033[0m";
+        continue;
+      }
+      cout << mp[i][j];
+    }
+    cout << '\n';
+  }
+  return ;
 }
-Def Main() {
-	In to n, m;
-	For i = 0 -> int; i < n; ++i {
-		In to xtmpx[i];
-		For j = 0 -> int; j < m; ++j {
-			mp[i][j] = xtmpx[i][j] - '0';
-		}
-	}
-	In to mainlyx, mainlyy;
-	If mp[--mainlyx][--mainlyy] Then Tnt(mainlyx, mainlyy);
-	PrintMap();
-	Return 0;
+int main() {
+  cin >> n >> m;
+  for (int i = 0; i < n; ++ i) {
+    cin >> xtmpx[i];
+    for (int j = 0; j < m; ++ j) {
+      mp[i][j] = xtmpx[i][j] - '0';
+    }
+  }
+  cin >> mainlyx >> mainlyy;
+  if (mp[-- mainlyx][-- mainlyy]) Tnt (mainlyx, mainlyy);
+  PrintMap ();
+  return 0;
 }

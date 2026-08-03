@@ -1,40 +1,41 @@
-def MaxBalanced(n -> int, m -> int, g<<>> -> int) -> int {
-	ans = 0 -> int;
-	For r1 = 0 -> int; r1 < n; ++r1 {
-		For c1 = 0 -> int; c1 < m; ++c1 {
-			For r2 = r1 -> int; r2 < n; ++r2 {
-				For c2 = c1 -> int; c2 < m; ++c2 {
-					black = 0 -> int;
-					For i = r1 -> int; i <= r2; ++i {
-						For j = c1 -> int; j <= c2; ++j {
-							If g[i][j] == 1 Then black = black + 1;
-						}
-					}
-					area = (r2 - r1 + 1) * (c2 - c1 + 1) -> int;
-					If black * 2 == area && area > ans Then ans = area;
-				}
-			}
-		}
-	}
-	Return ans;
-}
+#include <bits/stdc++.h>
+using namespace std;
 
-Def Main() {
-	n = 0 -> int;
-	m = 0 -> int;
-	In to n, m;
-	grid<<>> -> int;
-	row = "" -> string;
-	For i = 0 -> int; i < n; ++i {
-		In to row;
-		line<> -> int;
-		For j = 0 -> int; j < m; ++j {
-			If row[j] == '1' Then line.add(1);
-			Else line.add(0);
-		}
-		grid.add(line);
-	}
-	Out MaxBalanced(n, m, grid);
-	Out Nl;
-	Return 0;
+int MaxBalanced(int n, int m, vector<vector<int>> g) {
+  int ans = 0;
+  for (int r1 = 0; r1 < n; ++ r1) {
+    for (int c1 = 0; c1 < m; ++ c1) {
+      for (int r2 = r1; r2 < n; ++ r2) {
+        for (int c2 = c1; c2 < m; ++ c2) {
+          int black = 0;
+          for (int i = r1; i <= r2; ++ i) {
+            for (int j = c1; j <= c2; ++ j) {
+              if (g[i][j] == 1) black = black + 1;
+            }
+          }
+          int area = (r2 - r1 + 1) * (c2 - c1 + 1);
+          if (black * 2 == area && area > ans) ans = area;
+        }
+      }
+    }
+  }
+  return ans;
+}
+int main() {
+  int n = 0;
+  int m = 0;
+  cin >> n >> m;
+  vector<vector<int>> grid;
+  string row = "";
+  for (int i = 0; i < n; ++ i) {
+    cin >> row;
+    vector<int> line;
+    for (int j = 0; j < m; ++ j) {
+      if (row[j] == '1') line.push_back(1); else line.push_back(0);
+    }
+    grid.push_back(line);
+  }
+  cout << (MaxBalanced (n, m, grid));
+  cout << endl;
+  return 0;
 }
