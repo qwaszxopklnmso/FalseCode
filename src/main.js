@@ -74,11 +74,21 @@ function main(argv) {
   console.log(`transpiled ${srcPath} -> ${outPath}`);
   if (flags.compile) {
     const exePath = outPath.replace(/\.[^.]+$/, '') + '.exe';
+    // pick the C++ compiler like regress does: $GXX -> g++ -> g++.exe
+    const candidates = (process.env.GXX ? [process.env.GXX] : []).concat(['g++', 'g++.exe']);
+    const gxx = candidates.find((c) => {
+      try { execFileSync(c, ['--version'], { stdio: 'ignore' }); return true; }
+      catch { return false; }
+    });
+    if (!gxx) {
+      console.error('[error] g++ not found: set GXX env or add g++/g++.exe to PATH');
+      process.exit(1);
+    }
     try {
-      execFileSync('g++', ['-std=gnu++11', '-O0', '-w', outPath, '-o', exePath], { stdio: 'pipe' });
+      execFileSync(gxx, ['-std=gnu++11', '-O0', '-w', outPath, '-o', exePath], { stdio: 'pipe' });
       console.log(`compiled ${outPath} -> ${exePath}`);
     } catch (e) {
-      console.error(`[error] g++ failed:\n${(e.stderr || e.message || '').toString().split('\n').slice(0, 6).join('\n')}`);
+      console.error(`[error] ${gxx} failed:\n${(e.stderr || e.message || '').toString().split('\n').slice(0, 6).join('\n')}`);
       process.exit(1);
     }
   }

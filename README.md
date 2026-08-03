@@ -99,8 +99,28 @@ First.md     语言规范(唯一权威参考)
 
 AI 制作提示:本项目由 **DeepSeek** 辅助开发与维护。
 
-# AI调用部分
+# 代码使用部分
 
 ## AI做题(By FalseCode)
-- 调用problems_test/problem.md 并给与题目/代码+出处+题号/名称
+- AI调用problems_test/problem.md 并给与题目/代码+出处+题号/名称
 - 代码在problems_test/
+## 一键检测
+- 把.fc代码写在:
+```
+problems_test/ 长代码测试
+tests/         基础代码测试
+tests/_probe/  Bug测试(短代码)
+example/       样例
+```
+任一文件夹中，运行 `regress.bat`（Windows）或 `./regress.sh`（WSL）即可。
+
+> 说明：regress 会对上述所有文件夹里的 `.fc` 做编译检查；其中 `tests/*.fc` 还会与同名 `.out` 比对输出（`*.in` 提供输入），`problems_test/*.fc` 会与 `standard/` 里的官方样例对拍，`.fc` 需带 `Cppybt_`/`Luogu_` 前缀才有对应样例。
+
+## Falsecode自动编译
+这两种都行：
+```sh
+falsecode [FileName] -c
+falsecode -c [FileName]
+```
+输出为cpp后缀的FileName（并自动编译出 .exe）。
+> 编译器自动选择：环境变量 `GXX` → `g++` → `g++.exe`，找不到会提示。
