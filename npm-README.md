@@ -1,36 +1,36 @@
 # False Code
 
-A programming language that transpiles to C++. Write `*.fc` source files, get C++ code out, compile with g++. Zero dependencies, pure Node.js.
+一门转译为 C++ 的编程语言（Transpile，非编译）：`*.fc` 源文件经 JS 转译器生成 C++ 源码，再用 g++ 编译运行。零依赖的纯 Node.js 项目。
 
-## Install
+## 安装
 
 ```sh
 npm install -g @qwaszxopklnm/falsecode
 ```
 
-Requires Node.js >= 18 and a C++ compiler (`g++` / `g++.exe`, set the `GXX` env var to override).
+需要 Node.js ≥ 18 和 C++ 编译器（`g++` / `g++.exe`，可用环境变量 `GXX` 指定编译器）。
 
-## Usage
+## 使用
 
 ```sh
-falsecode hello.fc            # transpile hello.fc -> hello.cpp
-falsecode hello.fc out.cpp    # specify the output path
-falsecode hello.fc -c         # transpile + compile with g++ (also: falsecode -c hello.fc)
-falsecode -v                  # version
-falsecode -u                  # language syntax reference (zh/en: falsecode -u en)
-falsecode -d                  # this README
+falsecode hello.fc            # 转译 hello.fc -> hello.cpp
+falsecode hello.fc out.cpp    # 指定输出路径
+falsecode hello.fc -c         # 转译后用 g++ 自动编译（等价写法：falsecode -c hello.fc）
+falsecode -v                  # 输出版本号
+falsecode -u                  # 语言语法参考（英文：falsecode -u en）
+falsecode -d                  # 显示本说明
 ```
 
-## Quick tour
+## 快速上手
 
-- Entry point: `Def Main() { ... }` (implicit `return 0;`)
-- Type annotations: `x = 1 -> int;`, `v<> -> int` (vector), `b[10] -> char` (fixed array), `c[] -> char` (C-style array)
-- Control flow: `If cond {` / `If cond Then stmt;`, `For`/`While`, `Switch`/`Case`
-- I/O: `Out a, b, c;` (`Nl` = newline), `In to a, b, c;`
-- Functions: `def Fn(a -> int) -> int { Return a * 2; }`
-- C++ syntax passes through: `#define`, `struct {}`, `std::cout`, `p->x`, ternaries, etc.
+- 入口：`Def Main() { ... }`（自动补 `return 0;`）
+- 类型注解：`x = 1 -> int;`、`v<> -> int`（vector 动态数组）、`b[10] -> char`（定长数组）、`c[] -> char`（C 风格数组）
+- 控制流：`If cond {` / `If cond Then 语句;`、`For` / `While`、`Switch` / `Case`
+- 输入输出：`Out a, b, c;`（`Nl` 换行）、`In to a, b, c;`
+- 函数：`def Fn(a -> int) -> int { Return a * 2; }`
+- C++ 语法可直接透传：`#define`、`struct {}`、`std::cout`、`p->x`、三元 `?:` 等
 
-## Example
+## 示例
 
 ```
 Def Main() {
@@ -42,6 +42,6 @@ Def Main() {
 }
 ```
 
-## License
+## 许可证
 
 MIT
