@@ -30,6 +30,15 @@ s = "hi" -> string;   // string s = "hi";
 p = &b -> int*;       // pointer: int* p = &b;
 ```
 
+Multiple variables on one line (comma-separated, one type):
+
+```
+a, b -> int;          // int a, b;
+c, d = 1, 2 -> int;   // int c = 1, d = 2;   (one initializer per name required)
+```
+
+> Note: one annotation carries exactly one type; `i, s -> int, string` is rejected.
+
 ### Arrays
 
 | Template | Emits | Notes |

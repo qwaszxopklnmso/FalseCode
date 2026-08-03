@@ -51,6 +51,10 @@ note "== compile all problems_test/*.fc"
 for f in problems_test/*.fc; do [ -e "$f" ] && check_compile "$f"; done
 
 note ""
+note "== compile all tests/_probe/*.fc"
+for f in tests/_probe/*.fc; do [ -e "$f" ] && check_compile "$f"; done
+
+note ""
 if [ "$FAIL" -eq 0 ]; then
   echo "ALL COMPILED OK ($PASS files)"
 else

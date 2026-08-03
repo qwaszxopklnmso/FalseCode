@@ -469,6 +469,22 @@ function gen(ast) {
       const annAngle = parseAnnotationAngle(typeTok);
       const declLHS = tokens.slice(0, eqIdx >= 0 && eqIdx < annIdx ? eqIdx : annIdx);
 
+      // multiple types on one annotation (`i, s -> int, string`) is not
+      // supported — reject rather than emit garbage (a `,` inside `<...>`
+      // template args like `map<int,int>` is fine)
+      {
+        let tDepth = 0, tComma = false;
+        for (const tt of typeTok) {
+          const tv = tt.value;
+          if (tv === '<' || tv === '<<') tDepth++;
+          else if (tv === '>' || tv === '>>') tDepth--;
+          else if (tv === ',' && tDepth === 0) { tComma = true; break; }
+        }
+        if (tComma) {
+          throw new Error(`invalid type list '${typeTok.map((t) => t.value).join(' ')}': only one type per declaration (multi-var is 'a, b -> T;')`);
+        }
+      }
+
       // annotation `<>` wins over the declarator: `c[10] -> v<>` -> `vector<v> c[10]`
       if (annAngle) {
         const name = nameFrom(declLHS);
@@ -541,8 +557,27 @@ function gen(ast) {
 
       // `x = value -> T`
       if (eqIdx >= 0 && eqIdx < annIdx) {
-        const lhs = declName(tokens.slice(0, eqIdx));
-        const val = expNoSemi(tokens.slice(eqIdx + 1, annIdx));
+        // comma list with initializers: `a, b = 1, 2 -> int` -> `int a = 1, b = 2;`
+        const lhsToks = tokens.slice(0, eqIdx);
+        const valToks = tokens.slice(eqIdx + 1, annIdx);
+        if (lhsToks.some((t) => t.value === ',')) {
+          const names = splitComma(lhsToks).map((g) => declName(g));
+          const vals = splitComma(valToks);
+          if (vals.length === names.length) {
+            names.forEach((n, i) => reg.arrays.delete(n));
+            if (isStringType(typeText2)) names.forEach((n) => reg.strings.add(n));
+            if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
+            if (typeSfx.dims) names.forEach((n) => reg.arrays.set(n, { kind: 'fixed' }));
+            const parts = names.map((n, i) => {
+              const v = vals[i].length ? expNoSemi(vals[i]) : '';
+              return `${n}${typeSfx.dims}${v ? ` = ${v}` : ''}`;
+            });
+            return `${typeCpp(typeText2)} ${parts.join(', ')};`;
+          }
+          throw new Error(`declaration '${lhsToks.map((t) => t.value).join('')} = ${valToks.map((t) => t.value).join('')}' needs one initializer per name`);
+        }
+        const lhs = declName(lhsToks);
+        const val = expNoSemi(valToks);
         reg.arrays.delete(lhs);
         reg.sets.delete(lhs);
         if (isStringType(typeText2)) reg.strings.add(lhs);
@@ -551,15 +586,32 @@ function gen(ast) {
         return `${typeCpp(typeText2)} ${lhs}${typeSfx.dims} = ${val};`;
       }
       // `x -> T`
-      const lhs = declName(tokens.slice(0, annIdx));
-      reg.arrays.delete(lhs);
-      reg.strings.delete(lhs);
-      reg.queues.delete(lhs);
-      reg.sets.delete(lhs);
-      if (isStringType(typeText2)) reg.strings.add(lhs);
-      if (/^queue\s*</i.test(typeText2)) reg.queues.set(lhs, typeText2);
-      if (isSetType(typeText2)) reg.sets.add(lhs);
-      return `${typeCpp(typeText2)} ${lhs}${typeSfx.dims};`;
+      {
+        // comma list without initializers: `a, b -> int` -> `int a, b;`
+        const lhsToks = tokens.slice(0, annIdx);
+        if (lhsToks.some((t) => t.value === ',')) {
+          const names = splitComma(lhsToks).map((g) => declName(g));
+          names.forEach((n) => {
+            reg.arrays.delete(n);
+            reg.strings.delete(n);
+            reg.queues.delete(n);
+            reg.sets.delete(n);
+          });
+          if (isStringType(typeText2)) names.forEach((n) => reg.strings.add(n));
+          if (/^queue\s*</i.test(typeText2)) names.forEach((n) => reg.queues.set(n, typeText2));
+          if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
+          return `${typeCpp(typeText2)} ${names.map((n) => n + typeSfx.dims).join(', ')};`;
+        }
+        const lhs = declName(lhsToks);
+        reg.arrays.delete(lhs);
+        reg.strings.delete(lhs);
+        reg.queues.delete(lhs);
+        reg.sets.delete(lhs);
+        if (isStringType(typeText2)) reg.strings.add(lhs);
+        if (/^queue\s*</i.test(typeText2)) reg.queues.set(lhs, typeText2);
+        if (isSetType(typeText2)) reg.sets.add(lhs);
+        return `${typeCpp(typeText2)} ${lhs}${typeSfx.dims};`;
+      }
     }
 
     // -------- custom single operators --------
@@ -573,6 +625,7 @@ function gen(ast) {
     const zeroIdx = tokens.findIndex((t) => t.value === '##');
     if (zeroIdx >= 0 && isPureLvalueCtx(tokens, zeroIdx)) {
       const strReset = (name) => reg.strings.has(name) ? `${name}.clear();` : null;
+      const setReset = (name) => reg.sets.has(name) ? `${name}.clear();` : null;
       const queReset = (name) => reg.queues.has(name) ? `${name} = ${reg.queues.get(name)}();` : null;
       if (zeroIdx === 0) {
         // prefix form: `##i` -> `i = 0;`  (analogous to `++i` / `--i`)
@@ -580,13 +633,13 @@ function gen(ast) {
         const info = reg.arrays.get(rhs);
         if (info && info.kind === 'fixed') return `memset(${rhs}, 0, sizeof(${rhs}));`;
         if (info && info.kind === 'vector') return `${rhs}.assign(${rhs}.size(), 0);`;
-        return strReset(rhs) || queReset(rhs) || `${rhs} = 0;`;
+        return strReset(rhs) || setReset(rhs) || queReset(rhs) || `${rhs} = 0;`;
       }
       const lhs = tokens.slice(0, zeroIdx).map((t) => t.value).join('');
       const info = reg.arrays.get(lhs);
       if (info && info.kind === 'fixed') return `memset(${lhs}, 0, sizeof(${lhs}));`;
       if (info && info.kind === 'vector') return `${lhs}.assign(${lhs}.size(), 0);`;
-      return strReset(lhs) || queReset(lhs) || `${lhs} = 0;`;
+      return strReset(lhs) || setReset(lhs) || queReset(lhs) || `${lhs} = 0;`;
     }
 
     // -------- ordinary expression statement --------
@@ -751,10 +804,33 @@ function gen(ast) {
       }
       case 'stmt':
         return node.body ? null : stmtCpp(squeezeSemi(node.tokens)).replace(/;\s*$/, '');
+      case 'if': {
+        // nested inline `If cond { ... }` (from emitSingle) — recursively render
+        // as a block; if every branch is a single inline stmt, stay on one line.
+        const parts = [];
+        const push = (head, stmts) => {
+          if (stmts && stmts.inline && stmts.length === 1) {
+            const s = inlineStmt(stmts[0]);
+            if (s !== null) { parts.push(`${head} ${s.trim()}${s.endsWith('}') ? '' : ';'}`); return; }
+          }
+          parts.push(`${head} {`);
+          for (const st of stmts || []) {
+            const inner = genStmtText(st);
+            if (inner !== null) parts.push(`  ${inner}`);
+          }
+          parts.push('}');
+        };
+        if (node.cond !== null) push(`if (${expNoSemi(node.cond)})`, node.then);
+        for (const el of node.elifs) push(`else if (${expNoSemi(el.cond)})`, el.then);
+        if (node.els) push('else', node.els.stmts);
+        return parts.join(' ');
+      }
       case 'inlineCpp': {
         const parts = node.inner.map((s) => {
           const c = inlineStmt(s);
-          return c === null || c === '' ? '' : c + ';';
+          if (c === null || c === '') return '';
+          // a block result (`{ ... }` / `if (...) {...}`) needs no `;`
+          return c.endsWith('}') ? c : c + ';';
         }).filter((c) => c !== '');
         let headCpp = expNoSemi(fixCppParams(node.head));
         // `f = [] (int x) -> int { ... };` is a lambda *declaration*:
@@ -769,6 +845,16 @@ function gen(ast) {
       case 'empty': return '';
       default: return null;
     }
+  }
+
+  // Render one statement as a single line of C++ (no trailing newline), or
+  // null when it cannot be expressed on one line. Used by inlineStmt('if')
+  // to lay out nested inline blocks.
+  function genStmtText(node) {
+    const s = inlineStmt(node);
+    if (s !== null) return `${s};`;
+    if (node.kind === 'if') return inlineStmt(node);
+    return null;
   }
 
   // Whole if / elif / else chain where every branch is a single inline stmt -> one line.

@@ -1,0 +1,6 @@
+Def Main() {
+  s -> set<int>;
+  s.add(1);
+  s##;
+  Out s.len;
+}

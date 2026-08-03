@@ -1,0 +1,13 @@
+Def Main() {
+  x -> int;
+  x = 2;
+  Switch x {
+    Case 1:
+      Out "one";
+    Case 2:
+      Out "two";
+    Else:
+      Out "other";
+  }
+  Out "after";
+}

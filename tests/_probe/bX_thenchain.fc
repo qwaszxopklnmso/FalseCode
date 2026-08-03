@@ -1,0 +1,5 @@
+Def Main() {
+  x -> int;
+  x = 5;
+  If x == 1 Then Out "a"; Elif x == 2 Then Out "b"; Else { Out "c"; }
+}

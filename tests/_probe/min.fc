@@ -1,4 +1,5 @@
 Def Main() {
+	line<> -> int;
 	If true Then line.add(1);
 	Else { line.add(0); }
 	Return 0;

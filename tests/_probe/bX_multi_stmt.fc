@@ -1,0 +1,5 @@
+Def Main() {
+  a -> int; b -> int;
+  a = 1; b = 2;
+  Out a + b;
+}

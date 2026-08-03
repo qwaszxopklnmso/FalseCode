@@ -145,6 +145,32 @@ function parse(sourceText) {
       case 'output': return { kind: 'out', tokens: rest };
       case 'input': return { kind: 'input', tokens: rest };
       case 'if': {
+        // `If cond { stmt; stmt; }` — a same-line brace block, possibly
+        // nested inside another inline block (e.g. `While x Then If y { z; }`).
+        let br = -1, dp = 0;
+        for (let i = 0; i < rest.length; i++) {
+          const v = rest[i].value;
+          if (v === '(' || v === '[') dp++;
+          else if (v === ')' || v === ']') dp--;
+          else if (v === '{' && dp === 0) { br = i; break; }
+        }
+        if (br >= 0) {
+          let close = -1, d2 = 0;
+          for (let i = br; i < rest.length; i++) {
+            if (rest[i].value === '{') d2++;
+            else if (rest[i].value === '}') { d2--; if (d2 === 0) { close = i; break; } }
+          }
+          if (close >= 0) {
+            const cond = rest.slice(0, br);
+            // `If cond Then { ... }` — a Then between cond and the block
+            const ti = cond.findIndex((t) => t.value.toLowerCase() === 'then');
+            const head = ti >= 0 ? cond.slice(0, ti) : cond;
+            const b = splitTopSemi(rest.slice(br + 1, close))
+              .filter((g) => g.length).map((g) => emitSingle(g));
+            b.inline = true;
+            return { kind: 'if', cond: unparen(head), then: b, elifs: [], els: null };
+          }
+        }
         // same-line `If cond Then stmt` (nested inside a `Then` body):
         // `While x < n Then If y < m Then Out ...;`
         const thenIdx = rest.findIndex((t) => t.value.toLowerCase() === 'then');
@@ -399,7 +425,15 @@ function parse(sourceText) {
           const head = stripSemi(toks).filter((t) => t.value !== '{' && t.value !== '}');
           stmts.push({ kind: 'stmt', tokens: head, body: last.value === '}' ? [] : readBlock(line.indent) });
         } else {
-          stmts.push({ kind: 'stmt', tokens: stripSemi(toks) });
+          // multiple statements on one line: `a -> int; b -> int;` or
+          // `a = 1; b = 2;` — split at top-level `;`. Embedded `;` inside
+          // braces (lambdas, `{ ... }` inits) is depth-protected, and a bare
+          // `{`-init list was already handled above.
+          const groups = splitTopSemi(toks);
+          for (const g of groups) {
+            const w = g.filter((t) => t.value !== ';');
+            if (w.length) stmts.push({ kind: 'stmt', tokens: stripSemi(w) });
+          }
         }
       }
     }
@@ -467,6 +501,15 @@ function parse(sourceText) {
         const then = e.inline ? [e.inline] : readBlock(n.indent);
         then.inline = !!e.inline;
         node.elifs.push({ cond: e.cond, then });
+        // an elif's own inlineCpp may still carry a tail chain:
+        // `If A Then x; Elif B Then y; Else { z; }` — the tail is in e.inline.
+        if (e.inline && e.inline.kind === 'inlineCpp' && e.inline.tail.length) {
+          const tk = e.inline.tail[0].value.toLowerCase();
+          if (tk === 'else' || tk === 'elif') {
+            pending.push({ tokens: e.inline.tail, indent: n.indent, lineNo: n.lineNo });
+            e.inline.tail = [];
+          }
+        }
       } else {
         // `else if (cond) stmt;` is an elif chain, not a final else
         const etoks = words(n.tokens).slice(1);
@@ -489,6 +532,19 @@ function parse(sourceText) {
 
   function parseElseBody(l) {
     let toks = words(l.tokens).slice(1);
+    // `Else:` — a switch default marker (Python-style). Parse like a `case`
+    // with no value: optional same-line stmt, otherwise an indented block.
+    if (toks.length && toks[0].value === ':') {
+      const rest = stripSemi(toks.slice(1));
+      if (rest.length) {
+        const b = [emitSingle(rest)];
+        b.inline = true;
+        return { kind: 'block', stmts: b };
+      }
+      const b = readBlock(l.indent);
+      b.inline = false;
+      return { kind: 'block', stmts: b };
+    }
     // same-line C++ block: `Else { line.add(0); }` -> inlineCpp (mirrors read())
     if (toks.length && toks[0].value === '{') {
       let close = -1, depth = 0;
@@ -838,14 +894,22 @@ function parse(sourceText) {
     let w = words(line.tokens).slice(1);
     // same-line `If cond { stmt; stmt; }` block — scan the FULL line
     // (incl. the trailing `}`) so the braces balance; mirrors parseElseBody.
-    let br = -1, dp = 0;
+    let br = -1, dp = 0, thenBefore = -1;
     for (let i = 0; i < w.length; i++) {
       const v = w[i].value;
       if (v === '(' || v === '[') dp++;
       else if (v === ')' || v === ']') dp--;
-      else if (v === '{' && dp === 0) { br = i; break; }
+      else if (dp === 0) {
+        if (v === '{') { br = i; break; }
+        if (v.toLowerCase() === 'then' && thenBefore < 0) thenBefore = i;
+      }
     }
-    if (br >= 0) {
+    // A `{` after an inline Then-body (`If cond Then stmt; Else { ... }`) belongs
+    // to the chain, not to this branch — only treat `{` as this branch's own
+    // block when no Then precedes it (`If cond {`) or it directly follows a
+    // `Then` (`If cond Then {`).
+    const between = br >= 0 && thenBefore >= 0 ? w.slice(thenBefore + 1, br) : [];
+    if (br >= 0 && (thenBefore < 0 || between.length === 0)) {
       let close = -1;
       dp = 0;
       for (let i = br; i < w.length; i++) {
@@ -882,7 +946,27 @@ function parse(sourceText) {
         condToks = condToks.slice(0, -1);
       }
       cond = unparen(condToks);
-      inline = emitSingle(w.slice(thenIdx + 1));
+      // a same-line chain may follow the Then body:
+      // `If c Then stmt; Elif c2 Then stmt2; Else { ... }` — split the Then body
+      // from the trailing Elif/Else so parseIf can chain it.
+      const rest = w.slice(thenIdx + 1);
+      let chainAt = -1, dep = 0;
+      for (let i = 0; i < rest.length; i++) {
+        const v = rest[i].value;
+        if (v === '(' || v === '[') dep++;
+        else if (v === ')' || v === ']') dep--;
+        else if (dep === 0 && i > 0 &&
+                 (v.toLowerCase() === 'elif' || v.toLowerCase() === 'else')) {
+          chainAt = i; break;
+        }
+      }
+      if (chainAt > 0) {
+        const b = [emitSingle(rest.slice(0, chainAt))];
+        b.inline = true;
+        inline = { kind: 'inlineCpp', head: [], inner: b, tail: rest.slice(chainAt) };
+      } else {
+        inline = emitSingle(rest);
+      }
     } else {
       const w2 = w.slice(0, end);
       // C++-style inline: `if (cond) stmt;` — first `(` ... `)` pair is the

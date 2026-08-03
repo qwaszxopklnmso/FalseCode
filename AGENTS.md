@@ -10,6 +10,7 @@
 - Transpile a file: `node src/main.js <in.fc> [out.cpp]` (default out = `in name + .cpp` next to input).
 - Run the end-to-end suite (transpiles → compiles with `g++` → runs each fixture against its `.out`): `node tests/run.js` (or `npm.cmd test`; plain `npm test` fails because `npm.ps1` is blocked by the execution policy on this machine).
 - Fixtures live in `tests/*.fc` with expected stdout in `tests/*.out` (`*.in` supplies stdin). Add a fixture for any new syntax WIP.
+- Bug/regression probes MUST be written under `tests/_probe/` (e.g. `bX_*.fc`); after a fix, do NOT delete them — `./regress.sh` re-compiles every `tests/_probe/*.fc` so past bugs stay covered.
 
 ## Sources of truth
 
@@ -63,5 +64,5 @@ Keep this a self-contained project. Work against documented C++ output correctne
 
 ## Rules
 
-- Speak Chinese no matter what language I say.
-- List Bugs before Fix bugs. (List -> wait-ask -> Fix)
+- Speak Chinese no matter what language I say. (Also Thinking in Chinese)
+- List Bugs before Fix bugs. (Think about bugs(Find bugs,not to run regress) -> List bugs -> wait-ask -> Fix bugs -> Test(regress))
