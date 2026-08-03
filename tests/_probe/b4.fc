@@ -1,0 +1,18 @@
+def Mul2(n -> int) -> int {
+	Return n * 2;
+}
+Def Main() {
+	total = 0 -> int;
+	For i = 0 -> int; i < 5; ++i {
+		If i == 1 Then Continue;
+		If i == 3 Then Break;
+		total += i;
+	}
+	Out total, Nl;
+	For i = 0 -> int; i < 3; ++i {
+		If i == 1 Then Continue;
+		total += 10;
+	}
+	Out total, Nl;
+	Return 0;
+}

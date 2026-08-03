@@ -1,0 +1,17 @@
+Def Main() {
+	v<> -> int;
+	v.add(1);
+	v.add(2);
+	n = v.len -> int;
+	Out n, Nl;
+	v.remove(0);
+	Out v.len, Nl;
+	s = "hello" -> string;
+	Out s.len, Nl;
+	s2 = "" -> string;
+	Out s2.len, Nl;
+	a[3] -> int;
+	a[0] = 7;
+	Out a.len, Nl;
+	Return 0;
+}

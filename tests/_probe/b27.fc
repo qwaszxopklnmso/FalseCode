@@ -1,0 +1,11 @@
+Def Main() {
+	local[2][3] -> int;
+	local[0][0] = 1;
+	local[1][2] = 2;
+	Out local[0][0] + local[1][2], Nl;
+	grid[3] = {4, 5, 6} -> int[3];
+	Out grid[0] + grid[1] + grid[2], Nl;
+	diag[2] = { {1, 2}, {3, 4} } -> int[2][2];
+	Out diag[1][1], Nl;
+	Return 0;
+}

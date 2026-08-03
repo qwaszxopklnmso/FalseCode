@@ -1,0 +1,12 @@
+Def Main() {
+	total = 0 -> int;
+	For i = 1 -> int; i <= 10; ++i {
+		If i % 3 == 0 ?
+			total += 100;
+		Elif i % 3 == 1 Then total += 10;
+		Else total += 1;
+	}
+	Out total, Nl;
+	Out "done", Nl;
+	Return 0;
+}

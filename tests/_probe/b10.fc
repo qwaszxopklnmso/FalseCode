@@ -1,0 +1,22 @@
+struct Point {
+	int x;
+	int y;
+	def Sum() -> int {
+		Return x + y;
+	}
+	void Set(int a, int b) {
+		x = a;
+		y = b;
+	}
+};
+Def Main() {
+	p -> Point;
+	p.Set(3, 4);
+	Out p.Sum(), Nl;
+	Out p.x, p.y, Nl;
+	arr[2] -> Point;
+	arr[0] = p;
+	arr[1].Set(1, 2);
+	Out arr[0].Sum() + arr[1].Sum(), Nl;
+	Return 0;
+}

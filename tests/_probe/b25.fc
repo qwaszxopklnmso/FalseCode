@@ -1,0 +1,12 @@
+Def Main() {
+	c = getchar() -> int;
+	Out c, Nl;
+	ungetc('x', stdin);
+	c2 = getchar() -> int;
+	Out c2, Nl;
+	a = 0 -> int;
+	b = 0 -> int;
+	In to a, b;
+	Out a + b, Nl;
+	Return 0;
+}

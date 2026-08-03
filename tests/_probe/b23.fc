@@ -1,0 +1,13 @@
+Def Main() {
+	n = 123456789012345 -> long long;
+	Out n, Nl;
+	u = 123456789012345 -> ull;
+	Out u, Nl;
+	f = 3.14159 -> double;
+	Out f, Nl;
+	c = 'A' -> char;
+	Out c, Nl;
+	Out c + 1, Nl;
+	Out (char)(c + 32), Nl;
+	Return 0;
+}

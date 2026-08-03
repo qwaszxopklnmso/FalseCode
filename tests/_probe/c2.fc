@@ -1,0 +1,17 @@
+arr[5] -> int;
+s -> string;
+Def F() -> int {
+	arr = 0 -> int;
+	arr##;
+	Return arr;
+}
+Def Main() {
+	arr[0] = 7;
+	Out F(), Nl;
+	arr##;
+	Out arr[0], arr[1], arr[2], arr[3], arr[4], Nl;
+	s = "hello" -> string;
+	s##;
+	Out s.len, Nl;
+	Return 0;
+}

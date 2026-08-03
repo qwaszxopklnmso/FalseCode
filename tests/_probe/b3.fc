@@ -1,0 +1,18 @@
+def Add(x -> int, y -> int) -> int {
+	Return x + y;
+}
+def Inc(n -> int) {
+	n = n + 1;
+}
+def Mul2(n -> int) -> int;
+def Mul2(n -> int) -> int {
+	Return n * 2;
+}
+Def Main() {
+	Out Add(3, 4), Nl;
+	x = 5 -> int;
+	Inc(x);
+	Out x, Nl;
+	Out Mul2(6), Nl;
+	Return 0;
+}

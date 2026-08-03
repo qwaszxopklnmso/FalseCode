@@ -1,0 +1,11 @@
+#define MAXN 100
+#define SQ(x) ((x) * (x))
+Def Main() {
+	a = SQ(3 + 1) -> int;
+	Out a, Nl;
+	b = MAXN + 1 -> int;
+	Out b, Nl;
+	c = SQ(5) -> int;
+	Out c, Nl;
+	Return 0;
+}

@@ -1,0 +1,11 @@
+Def Main() {
+	n = 2 -> int;
+	n ^^= 10;
+	Out n, Nl;
+	Out 2 ^^ 3 ^^ 2, Nl;
+	Out (2 ^^ 3) ^^ 2, Nl;
+	x = 5 -> int;
+	x ^= 3;
+	Out x, Nl;
+	Return 0;
+}

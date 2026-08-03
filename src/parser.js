@@ -416,12 +416,25 @@ function parse(sourceText) {
       node.then = readBlock(l.indent);
       node.then.inline = false;
     }
+    // same-line `If cond { ... } Else { ... }` / `... Elif ...`: the inlineCpp
+    // tail holds the rest of the chain on this line — feed it through the
+    // same chain logic before looking at following file lines.
+    const pending = [];
+    if (c.inline && c.inline.kind === 'inlineCpp' && c.inline.tail.length) {
+      const tk = c.inline.tail[0].value.toLowerCase();
+      if (tk === 'else' || tk === 'elif') {
+        const ic = c.inline;
+        pending.push({ tokens: ic.tail, indent: l.indent, lineNo: l.lineNo });
+        ic.tail = [];
+      }
+    }
     // chain elif / else at the same indent
     const inlineHead = node.then.inline === true;
-    while (!atEnd()) {
+    while (!atEnd() || pending.length) {
       const chainStart = pos;
-      let n = peek();
-      if (isCommentLine(n)) { pos++; continue; }
+      const fromPending = pending.length > 0;
+      let n = fromPending ? pending.shift() : peek();
+      if (!pending.length && isCommentLine(n)) { pos++; continue; }
       // `} Else {` / `} Elif ...` on one line: the `}` closes the previous
       // branch, the rest is the next branch head
       const w0 = words(n.tokens);
@@ -447,7 +460,8 @@ function parse(sourceText) {
         if (node.els === null && node.elifs.length === 0) pos = chainStart;
         break;
       }
-      if (!consumed) pos++;
+      // only file lines advance `pos` — pending (same-line) heads don't
+      if (!fromPending && !consumed) pos++;
       if (nk === 'elif') {
         const e = read(n);
         const then = e.inline ? [e.inline] : readBlock(n.indent);
@@ -475,6 +489,26 @@ function parse(sourceText) {
 
   function parseElseBody(l) {
     let toks = words(l.tokens).slice(1);
+    // same-line C++ block: `Else { line.add(0); }` -> inlineCpp (mirrors read())
+    if (toks.length && toks[0].value === '{') {
+      let close = -1, depth = 0;
+      for (let i = 0; i < toks.length; i++) {
+        if (toks[i].value === '{') depth++;
+        else if (toks[i].value === '}') {
+          depth--;
+          if (depth === 0) { close = i; break; }
+        }
+      }
+      if (close >= 0) {
+        const inner = splitTopSemi(toks.slice(1, close))
+          .filter((g) => g.length).map((g) => emitSingle(g));
+        inner.inline = true;
+        const node = { kind: 'inlineCpp', head: [], inner, tail: stripSemi(toks.slice(close + 1)) };
+        const b = [node];
+        b.inline = true;
+        return { kind: 'block', stmts: b };
+      }
+    }
     const stmts = [];
     if (!toks.length || hasAny('{', toks) || (lastOf(toks) && lastOf(toks).value === '?')) {
       const b = readBlock(l.indent);
@@ -802,6 +836,35 @@ function parse(sourceText) {
   }
   function readConditionOf(line) {
     let w = words(line.tokens).slice(1);
+    // same-line `If cond { stmt; stmt; }` block — scan the FULL line
+    // (incl. the trailing `}`) so the braces balance; mirrors parseElseBody.
+    let br = -1, dp = 0;
+    for (let i = 0; i < w.length; i++) {
+      const v = w[i].value;
+      if (v === '(' || v === '[') dp++;
+      else if (v === ')' || v === ']') dp--;
+      else if (v === '{' && dp === 0) { br = i; break; }
+    }
+    if (br >= 0) {
+      let close = -1;
+      dp = 0;
+      for (let i = br; i < w.length; i++) {
+        const v = w[i].value;
+        if (v === '{') dp++;
+        else if (v === '}') { dp--; if (dp === 0) { close = i; break; } }
+      }
+      if (close >= 0) {
+        let head = w.slice(0, br);
+        // `If cond Then { ... }` — a Then between the condition and the block
+        const ti = head.findIndex((t) => t.value.toLowerCase() === 'then');
+        if (ti >= 0) head = head.slice(0, ti);
+        const inner = splitTopSemi(w.slice(br + 1, close))
+          .filter((g) => g.length).map((g) => emitSingle(g));
+        inner.inline = true;
+        const node = { kind: 'inlineCpp', head: [], inner, tail: stripSemi(w.slice(close + 1)) };
+        return { cond: unparen(head), inline: node };
+      }
+    }
     let end = w.length;
     if (end && (lastOf(w).value === '?' || lastOf(w).value === '{')) end--;
     let depth = 0, thenIdx = -1;

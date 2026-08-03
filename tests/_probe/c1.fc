@@ -1,0 +1,11 @@
+Def Main() {
+	s -> string;
+	b -> int;
+	In to s, b;
+	Out s, Nl;
+	Out b, Nl;
+	s##;
+	b##;
+	Out s.len, " ", b, Nl;
+	Return 0;
+}

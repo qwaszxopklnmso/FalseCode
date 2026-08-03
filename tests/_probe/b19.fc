@@ -1,0 +1,18 @@
+Def Main() {
+	a = 1 -> int;
+	b = 2 -> int;
+	c = 3 -> int;
+	Out a < b && b < c, Nl;
+	Out a + b * c, Nl;
+	Out (a + b) * c, Nl;
+	Out a == b, Nl;
+	Out a != b, Nl;
+	Out !a, Nl;
+	Out ~a, Nl;
+	Out a | b, Nl;
+	Out a & b, Nl;
+	x = 0 -> int;
+	x = a > b ? a : b;
+	Out x, Nl;
+	Return 0;
+}

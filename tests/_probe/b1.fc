@@ -1,0 +1,13 @@
+Def Main() {
+	a = 5 -> int;
+	Out a < 10, Nl;
+	Out a > 3 && a < 10, Nl;
+	p = 0 -> int*;
+	p = &a;
+	Out *p, Nl;
+	Out *p + 1, Nl;
+	s = "a < b > c && x || y" -> string;
+	Out s, Nl;
+	Out (a < 10) ? "lt" : "ge", Nl;
+	Return 0;
+}

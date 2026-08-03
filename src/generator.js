@@ -779,7 +779,7 @@ function gen(ast) {
     const push = (head, stmts) => {
       if (ok && stmts && stmts.inline && stmts.length === 1) {
         const s = inlineStmt(stmts[0]);
-        if (s !== null) { parts.push(`${head} ${s};`); return; }
+        if (s !== null) { parts.push(`${head} ${s.trim()}${s.endsWith('}') ? '' : ';'}`); return; }
       }
       ok = false;
     };
@@ -887,7 +887,7 @@ function gen(ast) {
           if (es.inline && es.length === 1) {
             const s = inlineStmt(es[0]);
             if (s !== null) {
-              emit(`${p}else ${s};`);
+              emit(`${p}else ${s}${s.endsWith('}') ? '' : ';'}`);
               return;
             }
           }

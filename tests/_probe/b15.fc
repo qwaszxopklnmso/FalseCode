@@ -1,0 +1,21 @@
+struct Node {
+	int val;
+	Node* next;
+	Node(int v) {
+		val = v;
+		next = NULL;
+	}
+};
+Def Main() {
+	head = new Node(1) -> Node*;
+	head->next = new Node(2);
+	head->next->next = new Node(3);
+	p = head -> Node*;
+	sum = 0 -> int;
+	While p != NULL {
+		sum += p->val;
+		p = p->next;
+	}
+	Out sum, Nl;
+	Return 0;
+}

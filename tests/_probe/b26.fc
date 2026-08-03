@@ -1,0 +1,9 @@
+int16_t local[2][3] = {
+	{1, 2, 3},
+	{4, 5, 6}
+};
+Def Main() {
+	Out local[1][2], Nl;
+	Out local[0][0] + local[1][1], Nl;
+	Return 0;
+}

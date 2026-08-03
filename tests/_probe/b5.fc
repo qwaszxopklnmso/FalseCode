@@ -1,0 +1,18 @@
+Def Main() {
+	q -> queue<int>;
+	q.push(1);
+	q.push(2);
+	Out q.front() + q.back(), Nl;
+	q##;
+	Out q.empty(), Nl;
+	st -> stack<int>;
+	st.push(5);
+	st.push(6);
+	Out st.top(), Nl;
+	st.pop();
+	Out st.top(), Nl;
+	p = make_pair(1, "x") -> pair<int, string>;
+	Out p.first, Nl;
+	Out p.second, Nl;
+	Return 0;
+}

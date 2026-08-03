@@ -1,0 +1,18 @@
+Def Main() {
+	n = 0 -> int;
+	s = "" -> string;
+	In to n;
+	In to s;
+	Out n, Nl;
+	Out s, Nl;
+	arr[3] -> int;
+	For i = 0 -> int; i < 3; ++i {
+		In to arr[i];
+	}
+	total = 0 -> int;
+	For i = 0 -> int; i < 3; ++i {
+		total += arr[i];
+	}
+	Out total, Nl;
+	Return 0;
+}

@@ -1,0 +1,10 @@
+Def Main() {
+	s = "Hello, FalseCode" -> string;
+	Out s.substr(7, 5), Nl;
+	pos = s.find("Code") -> int;
+	Out pos, Nl;
+	Out s + "!", Nl;
+	Out s.length(), Nl;
+	Out tolower(s[0]), Nl;
+	Return 0;
+}

@@ -1,0 +1,22 @@
+Def Main() {
+	v <<>> -> int;
+	row1<> -> int;
+	row1.add(1);
+	row1.add(2);
+	v.add(row1);
+	row2<> -> int;
+	row2.add(3);
+	row2.add(4);
+	v.add(row2);
+	Out v[1][0], Nl;
+	Out v.len, Nl;
+	Out v[0][1] + v[1][1], Nl;
+	m -> map<int,int>;
+	m[5] = 50;
+	Out m[5], Nl;
+	st -> set<int>;
+	st.add(7);
+	st.add(3);
+	Out st.size(), Nl;
+	Return 0;
+}

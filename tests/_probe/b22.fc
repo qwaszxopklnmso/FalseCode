@@ -1,0 +1,17 @@
+Def Main() {
+	do {
+		Out "once", Nl;
+	} While false;
+	x = 0 -> int;
+	While x < 3 {
+		++x;
+	}
+	Out x, Nl;
+	For (i = 0 -> int; i < 3; ++i) {
+		Out i, " ";
+	}
+	Out Nl;
+	Die;
+	Out "unreachable", Nl;
+	Return 0;
+}

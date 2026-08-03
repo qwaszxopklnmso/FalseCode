@@ -1,0 +1,13 @@
+namespace MySpace {
+	int counter = 0;
+	int bump() {
+		Return ++counter;
+	}
+}
+Def Main() {
+	Out MySpace::bump(), Nl;
+	Out MySpace::bump(), Nl;
+	x = MySpace::counter -> int;
+	Out x, Nl;
+	Return 0;
+}

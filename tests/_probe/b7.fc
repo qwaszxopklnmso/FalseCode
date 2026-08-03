@@ -1,0 +1,10 @@
+Def Main() {
+	s = "tab\\tnewline\\nquote\\\"slash\\\\" -> string;
+	Out s, Nl;
+	Out 'a', 'b', '\\n', Nl;
+	Out 1000000000000LL, Nl;
+	Out 3.14f, Nl;
+	Out 0x1F, Nl;
+	Out 0b101, Nl;
+	Return 0;
+}

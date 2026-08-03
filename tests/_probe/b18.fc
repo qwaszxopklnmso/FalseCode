@@ -1,0 +1,22 @@
+int grade(int s) {
+	switch (s / 10) {
+	case 10:
+	case 9:
+		Return 5;
+	case 8:
+		Return 4;
+	case 7:
+		Return 3;
+	case 6:
+		Return 2;
+	Else Return 1;
+	}
+	Return 0;
+}
+Def Main() {
+	Out grade(95), Nl;
+	Out grade(85), Nl;
+	Out grade(60), Nl;
+	Out grade(40), Nl;
+	Return 0;
+}

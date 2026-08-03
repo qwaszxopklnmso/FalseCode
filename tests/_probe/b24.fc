@@ -1,0 +1,24 @@
+#include <iostream>
+using namespace std;
+typedef long long ll;
+typedef pair<int,int> pii;
+Def Main() {
+	mp -> map<int,int>;
+	mp.add(make_pair(1, 100));
+	mp.add(make_pair(2, 200));
+	Out mp[1] + mp[2], Nl;
+	mp.remove(1);
+	Out mp.size(), Nl;
+	vc<> -> int;
+	vc.add(10);
+	vc.add(20);
+	Out vc[1], Nl;
+	vc.remove();
+	Out vc.len, Nl;
+	q -> queue<int>;
+	q.push(5);
+	q.push(6);
+	Out q.front() + q.back(), Nl;
+	Out q.size(), Nl;
+	Return 0;
+}

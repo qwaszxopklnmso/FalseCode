@@ -1,0 +1,25 @@
+Def Main() {
+	a[3] = {1, 2, 3} -> int;
+	Do {
+		Out a[0], a[1], a[2], Nl;
+	} While next_permutation(a, a + 3);
+	Out "---", Nl;
+	v<> -> int;
+	v.add(3);
+	v.add(1);
+	v.add(2);
+	sort(v.begin(), v.end());
+	Do {
+		Out v[0], v[1], v[2], Nl;
+	} While next_permutation(v.begin(), v.end());
+	Out "---", Nl;
+	s = "abc" -> string;
+	Do {
+		Out s, Nl;
+	} While next_permutation(s.begin(), s.end());
+	Out "---", Nl;
+	b[3] = {2, 1, 3} -> int;
+	Out prev_permutation(b, b + 3), Nl;
+	Out b[0], b[1], b[2], Nl;
+	Return 0;
+}

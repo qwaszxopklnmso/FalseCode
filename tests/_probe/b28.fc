@@ -1,0 +1,9 @@
+typedef char elem;
+Def Main() {
+	arrv<> -> char[10];
+	c -> char[10];
+	c2[10] -> char;
+	d[10] -> elem<>;
+	E[10] -> char<>;
+	Return 0;
+}

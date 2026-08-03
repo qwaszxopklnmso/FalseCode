@@ -1,0 +1,14 @@
+void passByRef(int& x) {
+	x = x * 10;
+}
+void passByPtr(int* p) {
+	*p = 99;
+}
+Def Main() {
+	a = 5 -> int;
+	passByRef(a);
+	Out a, Nl;
+	passByPtr(&a);
+	Out a, Nl;
+	Return 0;
+}

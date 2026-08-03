@@ -1,0 +1,10 @@
+template <typename T>
+T Max(T a, T b) {
+	Return a > b ? a : b;
+}
+Def Main() {
+	Out Max(3, 7), Nl;
+	Out Max(2.5, 1.9), Nl;
+	Out Max('a', 'z'), Nl;
+	Return 0;
+}
