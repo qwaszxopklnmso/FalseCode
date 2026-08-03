@@ -126,8 +126,41 @@ function gen(ast) {
     return s.trim();
   }
 
+  // False Code keywords inside same-line `{ ... }` blocks in *expressions*
+  // (lambda bodies): `Return`/`Break`/`Continue` -> lowercase C++ keywords.
+  // Statement-level blocks are handled by the parser (inlineCpp); this only
+  // patches things like `Out [](int x){ Return x * x; }(3);`.
+  function convertBraceKeywords(s) {
+    let out = '';
+    let i = 0;
+    while (i < s.length) {
+      if (s[i] === '{') {
+        let depth = 0, close = -1;
+        for (let j = i; j < s.length; j++) {
+          if (s[j] === '{') depth++;
+          else if (s[j] === '}') {
+            depth--;
+            if (depth === 0) { close = j; break; }
+          }
+        }
+        if (close >= 0) {
+          const body = s.slice(i + 1, close);
+          const converted = body
+            .replace(/\bIf\b\s+([^;{}]+?)\s+Then\s+/gi, 'if ($1) ')
+            .replace(/\b(Return|Break|Continue)\b/g, (m) => m.toLowerCase());
+          out += '{' + converted + '}';
+          i = close + 1;
+          continue;
+        }
+      }
+      out += s[i];
+      i++;
+    }
+    return out;
+  }
+
   function exp(tokens) {
-    let s = toText(tokens);
+    let s = convertBraceKeywords(toText(tokens));
     // Protect string/char literals from operator rewrites below.
     const strs = [];
     s = s.replace(/(["'])(?:\\.|(?!\1).)*\1/g, (m) => {
