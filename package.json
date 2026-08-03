@@ -1,10 +1,14 @@
 {
   "name": "@qwaszxopklnm/falsecode",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "False Code transpiler: pseudo-code -> C++",
   "main": "src/main.js",
   "bin": {
     "falsecode": "bin/fc.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/qwaszxopklnmso/FalseCode.git"
   },
   "files": [
     "src/",
