@@ -6,6 +6,12 @@
   "bin": {
     "falsecode": "bin/fc.js"
   },
+  "files": [
+    "src/",
+    "bin/",
+    "README.md",
+    "SYNTAX/"
+  ],
   "type": "commonjs",
   "scripts": {
     "transpile": "node src/main.js",
