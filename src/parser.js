@@ -152,6 +152,25 @@ function parse(sourceText) {
         b.inline = true;
         return { kind: 'if', cond, then: b, elifs: [], els: null };
       }
+      case '{': {
+        // same-line C++ block with False Code statements:
+        // `if (x) { Return y; }` -> inner stmts converted
+        let close = -1, depth = 0;
+        for (let i = 0; i < w.length; i++) {
+          if (w[i].value === '{') depth++;
+          else if (w[i].value === '}') {
+            depth--;
+            if (depth === 0) { close = i; break; }
+          }
+        }
+        if (close >= 0) {
+          const inner = splitTopSemi(w.slice(1, close))
+            .filter((g) => g.length).map((g) => emitSingle(g));
+          inner.inline = true;
+          return { kind: 'inlineCpp', head: [], inner, tail: stripSemi(w.slice(close + 1)) };
+        }
+        return { kind: 'stmt', tokens: w };
+      }
       default: return { kind: 'stmt', tokens: w };
     }
   }
@@ -254,7 +273,8 @@ function parse(sourceText) {
       case 'elif': parseIf(line, stmts); return;
       case 'else': parseElse(line, stmts); return;
       case 'switch': parseSwitch(line, stmts); return;
-      case 'case': parseCase(line, stmts); return;
+      case 'case':
+      case 'default': parseCase(line, stmts); return;
       case 'for': parseFor(line, stmts); return;
       case 'while': parseWhile(line, stmts); return;
       case 'do': parseDo(line, stmts); return;
@@ -308,6 +328,41 @@ function parse(sourceText) {
       case 'pass': stmts.push({ kind: 'empty' }); return;
       default: {
         const last = lastOf(toks);
+        // single-line C++ function / lambda / block whose `{...}` body sits
+        // on the same line: `bool isEven(int x) { Return x % 2 == 0; };`,
+        // `f = [](int x) -> int { Return x * x; };`
+        // (a trailing `-> type` after the block means a False Code decl —
+        // `arr = {1,2,3} -> int[3];` — leave it to stmtCpp)
+        let braceIdx = -1, depth = 0;
+        for (let i = 0; i < toks.length; i++) {
+          const v = toks[i].value;
+          if (v === '(' || v === '[') depth++;
+          else if (v === ')' || v === ']') depth--;
+          else if (v === '{' && depth === 0) { braceIdx = i; break; }
+        }
+        if (braceIdx >= 0) {
+          let closeIdx = -1, depth = 0;
+          for (let i = braceIdx; i < toks.length; i++) {
+            if (toks[i].value === '{') depth++;
+            else if (toks[i].value === '}') {
+              depth--;
+              if (depth === 0) { closeIdx = i; break; }
+            }
+          }
+          const after = closeIdx >= 0 ? toks.slice(closeIdx + 1) : [];
+          if (closeIdx >= 0 && !after.some((t) => t.value === '->')) {
+            const inner = splitTopSemi(toks.slice(braceIdx + 1, closeIdx))
+              .filter((g) => g.length).map((g) => emitSingle(g));
+            inner.inline = true;
+            stmts.push({
+              kind: 'inlineCpp',
+              head: toks.slice(0, braceIdx),
+              inner,
+              tail: stripSemi(after),
+            });
+            return;
+          }
+        }
         if (last && last.value === '{') {
           // brace-init list: `arr[2][3] = { ... };` / `rmap[...] = { ... };`
           // — pass the whole block through verbatim (C++ initializer)
@@ -411,6 +466,18 @@ function parse(sourceText) {
   function parseSwitch(l, stmts) {
     const toks = words(l.tokens).slice(1).filter((t) => t.value !== '{');
     let body = readBlock(l.indent);
+    // case labels may sit at the same indent as the switch header (C++ style)
+    if (!body.some((n) => n.kind === 'case')) {
+      while (!atEnd()) {
+        const l2 = peek();
+        const w0 = words(l2.tokens);
+        const k0 = w0.length ? w0[0].value.toLowerCase() : '';
+        if (l2.indent !== l.indent || (k0 !== 'case' && k0 !== 'else' && k0 !== 'default')) break;
+        if (isCommentLine(l2)) { pos++; continue; }
+        pos++;
+        parseLine(l2, body);
+      }
+    }
     // an `Else` inside a switch means `default:`; it parses as an
     // `{kind:'if', cond:null, els:{...}}` — convert that here.
     body = body.map((n) => {
@@ -430,8 +497,23 @@ function parse(sourceText) {
       val = toks.slice(0, thenIdx).filter((t) => t.value !== '?');
       body = [emitSingle(toks.slice(thenIdx + 1))];
     } else {
-      val = toks.filter((t) => t.value !== '?');
-      body = readBlock(l.indent);
+      let colonIdx = -1, depth = 0;
+      for (let i = 0; i < toks.length; i++) {
+        const v = toks[i].value;
+        if (v === '(' || v === '[') depth++;
+        else if (v === ')' || v === ']') depth--;
+        else if (v === ':' && depth === 0) { colonIdx = i; break; }
+      }
+      if (colonIdx >= 0 && colonIdx < toks.length - 1) {
+        // `case 1: stmt;` — statement on the same line
+        val = toks.slice(0, colonIdx);
+        const b = [emitSingle(stripSemi(toks.slice(colonIdx + 1)))];
+        b.inline = true;
+        body = b;
+      } else {
+        val = toks.filter((t) => t.value !== '?' && t.value !== ':');
+        body = readBlock(l.indent);
+      }
     }
     stmts.push({ kind: 'case', val, body });
   }
@@ -602,12 +684,30 @@ function parse(sourceText) {
             .flatMap((t) => t.value === '<<' ? ['<', '<'] : t.value === '>>' ? ['>', '>'] : [t.value]);
           nesting = flat.filter((v) => v === '<').length;
         }
+        let name, type;
+        if (annIdx >= 0) {
+          type = toText(g.slice(annIdx + 1));
+          name = g.slice(0, cut).map((t) => t.value).join('');
+        } else {
+          // C++-style prefix params: `Vec o`, `int a[]`, `Node* p`, `const Big& b`
+          let nameIdx = -1;
+          for (let i = g.length - 1; i >= 0; i--) {
+            if (g[i].type === 'word') { nameIdx = i; break; }
+          }
+          if (nameIdx > 0) {
+            name = g[nameIdx].value;
+            type = toText(g.slice(0, nameIdx));
+          } else {
+            name = g.slice(0, cut).map((t) => t.value).join('');
+            type = '';
+          }
+        }
         return {
-          name: g.slice(0, cut).map((t) => t.value).join(''),
+          name,
           array: arrIdx >= 0,
           size,
           nesting,
-          type: annIdx >= 0 ? toText(g.slice(annIdx + 1)) : '',
+          type,
         };
       });
     // remaining header tokens: possibly `-> RetType`, then `{`/`:`/`?`

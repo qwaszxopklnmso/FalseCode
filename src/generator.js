@@ -301,6 +301,29 @@ function gen(ast) {
       return w[0].value;
     };
 
+    // a type annotation may carry a C++-style array suffix: `x = {...} -> int[3]`
+    const splitTypeSuffix = (typeTok) => {
+      const parts = [];
+      const dims = [];
+      let i = 0;
+      while (i < typeTok.length) {
+        if (typeTok[i].value === '[') {
+          let depth = 0, close = -1;
+          for (let k = i; k < typeTok.length; k++) {
+            if (typeTok[k].value === '[') depth++;
+            else if (typeTok[k].value === ']') {
+              depth--;
+              if (depth === 0) { close = k; break; }
+            }
+          }
+          if (close < 0) { parts.push(typeTok[i].value); i++; continue; }
+          dims.push(`[${expNoSemi(typeTok.slice(i + 1, close))}]`);
+          i = close + 1;
+        } else { parts.push(typeTok[i].value); i++; }
+      }
+      return { type: parts.join(' '), dims: dims.join('') };
+    };
+
     // `->` is a False Code type annotation only when followed by a type
     // keyword, a registered custom type, or `ns::Name`; otherwise it is
     // plain C++ member access (`p->x`).
@@ -311,8 +334,8 @@ function gen(ast) {
     // -------- declarations (annotation present) --------
     if (annIdx >= 0) {
       const typeTok = tokens.slice(annIdx + 1);
-      const typeText2 = typeTok.filter((t) => t.value !== '[' && t.value !== ']')
-        .map((t) => t.value).join(' ');
+      const typeSfx = splitTypeSuffix(typeTok);
+      const typeText2 = typeSfx.type;
 
       // angle-bracket dynamic array: `x<> -> T` -> vector<T>,
       // `vec<<>> -> T` -> vector<vector<T>> (`<<`/`>>` lex as shift ops)
@@ -372,7 +395,8 @@ function gen(ast) {
         const val = expNoSemi(tokens.slice(eqIdx + 1, annIdx));
         arrays.delete(lhs);
         if (isStringType(typeText2)) strings.add(lhs);
-        return `${typeCpp(typeText2)} ${lhs} = ${val};`;
+        if (typeSfx.dims) arrays.set(lhs, { kind: 'fixed' });
+        return `${typeCpp(typeText2)} ${lhs}${typeSfx.dims} = ${val};`;
       }
       // `x -> T`
       const lhs = declName(tokens.slice(0, annIdx));
@@ -381,7 +405,7 @@ function gen(ast) {
       queues.delete(lhs);
       if (isStringType(typeText2)) strings.add(lhs);
       if (/^queue\s*</i.test(typeText2)) queues.set(lhs, typeText2);
-      return `${typeCpp(typeText2)} ${lhs};`;
+      return `${typeCpp(typeText2)} ${lhs}${typeSfx.dims};`;
     }
 
     // -------- custom single operators --------
@@ -573,6 +597,21 @@ function gen(ast) {
       }
       case 'stmt':
         return node.body ? null : stmtCpp(squeezeSemi(node.tokens)).replace(/;\s*$/, '');
+      case 'inlineCpp': {
+        const parts = node.inner.map((s) => {
+          const c = inlineStmt(s);
+          return c === null || c === '' ? '' : c + ';';
+        }).filter((c) => c !== '');
+        let headCpp = expNoSemi(fixCppParams(node.head));
+        // `f = [] (int x) -> int { ... };` is a lambda *declaration*:
+        // the RHS has no type, so emit `auto f = ...;`
+        if (node.head.length >= 2 && node.head[0].type === 'word' &&
+            node.head[1].value === '=' && node.head[0].value.toLowerCase() !== 'return') {
+          headCpp = `auto ${headCpp}`;
+        }
+        return `${headCpp} { ${parts.join(' ')} }` +
+          (node.tail.length ? ` ${expNoSemi(node.tail)}` : '');
+      }
       case 'empty': return '';
       default: return null;
     }
@@ -618,6 +657,10 @@ function gen(ast) {
   function genStmt(node, indent) {
     const p = pad(indent);
     switch (node.kind) {
+      case 'inlineCpp': {
+        emit(`${p}${inlineStmt(node)}${node.tail.length ? '' : ';'}`);
+        return;
+      }
       case 'stmt': {
         if (node.body) {
           emit(`${p}${expNoSemi(fixCppParams(node.tokens))} {`);
