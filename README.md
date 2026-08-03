@@ -6,6 +6,21 @@
 
 前提:已安装 Node.js(≥ 18)和 g++(如 MinGW)。
 
+### 环境安装
+
+- **Node.js**(转译器运行环境):从官网下载安装包即可 — https://nodejs.org/zh-cn/download
+- **g++ / MinGW**(把生成的 C++ 编译成可执行文件,Windows 方案任选其一):
+  - MSYS2(包管理器,推荐):https://www.msys2.org/ ,安装后运行:
+    ```
+    pacman -S mingw-w64-x86_64-gcc
+    ```
+    再把 `C:\msys64\mingw64\bin` 加入系统 PATH
+  - WinLibs(免安装解压即用):https://winlibs.com/ ,解压后把 `mingw64\bin` 目录加入系统 PATH
+- **g++**(Linux):`sudo apt install g++`(Debian/Ubuntu)或 `sudo dnf install gcc-c++`(Fedora)
+- **g++**(macOS):执行 `xcode-select --install`(自带 clang/g++)
+
+验证安装:命令行执行 `node --version` 和 `g++ --version`,均输出版本号即可。
+
 ```bash
 # 转译单个文件:  node src/main.js <in.fc> [out.cpp]
 node src/main.js hello.fc          # 生成 hello.cpp(默认输出到输入文件旁)
