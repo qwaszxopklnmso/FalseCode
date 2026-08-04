@@ -8,7 +8,7 @@
 
 - In WSL: `source .env.wsl.sh` first (bridges Windows `node`/`g++` into PATH; file is machine-specific and git-ignored, do not commit it).
 - Transpile a file: `node src/main.js <in.fc> [out.cpp]` (default out = `in name + .cpp` next to input).
-- Run the end-to-end suite (transpiles → compiles with `g++` → runs each fixture against its `.out`): `node tests/run.js` (or `npm.cmd test`; plain `npm test` fails because `npm.ps1` is blocked by the execution policy on this machine).
+- Run the end-to-end suite (transpiles → compiles with `g++` → runs each fixture against its `.out`): `./regress.sh` already runs `node tests/run.js` (or `npm.cmd test`; plain `npm test` fails because `npm.ps1` is blocked by the execution policy on this machine) — do NOT run `tests/run.js` separately.
 - Fixtures live in `tests/*.fc` with expected stdout in `tests/*.out` (`*.in` supplies stdin). Add a fixture for any new syntax WIP.
 - Bug/regression probes MUST be written under `tests/_probe/` (e.g. `bX_*.fc`); after a fix, do NOT delete them — `./regress.sh` re-compiles every `tests/_probe/*.fc` so past bugs stay covered.
 
@@ -30,7 +30,7 @@
 - **Block syntax:** `If/Elif/Case` use `?` + Tab or `Then` (Python-style), while `Else` uses `{}`; `while/for/switch` use `{}` or `Then` + single statement. `Break`/`Continue` are capitalised in examples.
 - Comments: triple-backtick `python-style multiline` and `//` for single line.
 - **Spec is intentionally open-ended:** it ends with "再加别的，自己想" (add the rest yourself). Reasonable extensions are expected, but keep existing rules intact.
-- Input/output: `Out a,b,c...` (comma-separated, `Nl` = newline), `In to a,b,c...`, `getchar` follows C++ semantics.
+- Input/output: `Out a,b,c...` (comma-separated, `Nl` = newline), `In to a,b,c...`, `getchar` follows C++ semantics. `in -> T;` / `out -> T;` are declarations of variables named `in`/`out`, not input/output statements.
 - `Def Fn() -> ReturnType:` ... `Return ...;` for functions.
 
 ## Transpiler behaviour (decisions, already baked into src/)
@@ -38,7 +38,7 @@
 - Generated C++ is self-contained: a hard-coded `#include <bits/stdc++.h>` + `using namespace std;` header; source never contains `Main`-level `include`.
 - `Def Main()` → `int main()`, params `argc -> int`→`int argc`, `argv -> string[]`→`char** argv`; an implicit `return 0;` is added if main has no `Return`.
 - `For`/`While` headers may use parentheses OR omit them (`For (i=0 -> int; i<4; ++i)` and `For i=0 -> int; i<4; ++i {` are equivalent; note the spec sample splits fields with `;`). Parentheses are treated as the header form ONLY when the header's first token is `(`; otherwise a leading `(...)` is a function call in the condition (e.g. `While f(n) < 10 {`). A `->` in the head is a type annotation only if followed by a type keyword — `For i = p->a; ...` is member access.
-- `Then` may start a body line (`Then Break;`) or follow the condition inline (`Elif x==3 Then Continue;`). `Break`/`Continue`/`Return` are case-insensitive. `Die`/`Pass` emit an empty statement.
+- `Then` may start a body line (`Then Break;`) or follow the condition inline (`Elif x==3 Then Continue;`). `Break`/`Continue`/`Return` are case-insensitive. `Goto label;` → `goto label;` (labels are C++ labels, must be indented inside their block). `Die`/`Pass` emit an empty statement.
 - do-while: `do { ... } While cond;` (multi-line block, `} While` tail line becomes a `dowhile` node) or single-line `do Out 1; While false;` / `do { Out 1; } While cond;`. Generator has `case 'do'` and `case 'dowhile'`.
 - struct/class/union: header line + closing line (`};` / `}a[105];`) pass through verbatim; interior lines are parsed as False Code (so members/methods can be written in False Code), and C++-style `if (cond) stmt;` / `else` inside works (readConditionOf handles `(`-wrapped inline stmts ending in `;`; parseIf chain skips leading `}` on `} Else {` lines).
 - Multi-line C++ brace initializers (`arr[2][3] = { ... };` or `rmap[...] = {...};`): a line whose top-level `=` is followed by a trailing `{` passes the whole block through verbatim until braces balance (e.g. global `int16_t rmap[3][2] = {...};`). Lines starting with `#` (`#ifdef`/`#endif`/...) never end an indented block, even flush-left — they are emitted with current indent (leading whitespace before `#` is legal C++).
@@ -51,7 +51,7 @@
 - Type annotation `->` also fires on **template types** (`x -> vector<int>;`, `m -> map<int,int>;`, `u -> std::unique_ptr<int>;`) and any qualified `ns::Name` (`gen -> std::mt19937;`); member access `p->x` / `1 < struct1->a` stay C++ passthrough. `squeezeSemi`/`stripSemi` only strip *trailing* `;` — embedded `;` (e.g. a lambda body `{ a = 42; }`, `for(;;)`) survives.
 - `Out` prints each argument wrapped in parentheses: `Out a & b;` → `cout << (a & b);`, `Out a ? b : c;` → `cout << (a ? b : c);` (avoids `<<` precedence bugs); `Nl` → `endl`/`'\n'` (no parens). Chained `^^` (power) is converted right-to-left with balanced paren/call scanning: `a ^^ 3 ^^ 2` → `pow(a, pow(3, 2))`.
 - `Else` inside `switch` becomes `default:`. Parser is line + indentation based; pure `}` lines are block terminators, never statements. `case` labels may sit at the same indent as the `switch` header (C++ style); `case 1: stmt;` on the same line works; a bare `default:` line parses like a case with no value.
-- **Indentation levels:** `indentLevelOf = tabs + ceil(spaces/2)` — 2 and 4 spaces are distinct levels (a 2-space body inside a 2-space header nests correctly).
+- **Indentation levels:** `indentLevelOf = tabs + ceil(spaces/2)` — 2 and 4 spaces are distinct levels (a 2-space body inside a 2-space header nests correctly). AST nodes carry their source `indent` level (parser sets `indent` on every pushed node; `raw` nodes keep their original text); the generator emits `pad(node.indent ?? indent)`, so parsed lines inside a `struct`/`class`/`union` keep their nesting depth instead of being emitted flush-left.
 - **Forward declarations:** `Def f(x -> bool);` emits a C++ prototype; with no `-> ret` its return type is inferred from the later definition (`defRet` pre-scan: value-returning → `int`, else `void`). Declaration and definition must agree on type and name (names are case-sensitive).
 - **`else if` chains:** `else if (cond) stmt;` / `else if (cond) { ... }` lines parse as elif links, not as a final else; a bare `}` line after an inline `if (c) stmt;` is never consumed by the if-chain (only block-form ifs close with `}`).
 - **Ternary `?`:** only a *trailing* `?` is a header terminator; mid-expression `?` (ternary) is kept — `if (a) return b ? c : d;` works.
@@ -68,3 +68,4 @@ Keep this a self-contained project. Work against documented C++ output correctne
 - List Bugs before Fix bugs. (Think about bugs(Find bugs,not to run regress) -> List bugs -> wait-ask -> Fix bugs -> Test(regress))
 - **Version bump rule:** every change (bugfix/doc/CI) bumps the last patch digit +1 by default (e.g. 0.3.2 → 0.3.3). Only bump minor/major (e.g. 0.3 → 0.4) when the user explicitly asks. Release = `git tag vX.Y.Z && git push origin vX.Y.Z` (npm publish runs automatically via Trusted Publishing, no token needed).
 - **Always publish after every change:** after committing+pushing any change, create the tag and push it so npm gets the new version right away (the workflow only triggers on `v*` tag pushes). Do not leave the last published version behind.
+- **Verify version before tagging:** before `git tag vX.Y.Z`, check `package.json` actually says `"version": "X.Y.Z"` (commit message saying "bump" is NOT enough — an un-bumped version makes `npm publish` fail with "version already exists", and the tag must then be deleted and re-created after a fix commit).

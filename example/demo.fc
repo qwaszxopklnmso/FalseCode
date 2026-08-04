@@ -69,13 +69,12 @@ Def Main() {
         Case 0 Then Out "zero";
         Else Out "other";
     }
-
     p = 1 -> int;
     While p < 4 {
         Out p;
         Out Nl;
         p = p + 1;
     }
-
+	p##;
     Return 0;
 }

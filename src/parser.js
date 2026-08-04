@@ -290,7 +290,7 @@ function parse(sourceText) {
     const line = { tokens: toks, indent: l.indent, lineNo: l.lineNo };
     // do-while tail: `} While (cond);` after a `do {` block
     if (toks[0].value === '}' && toks[1] && toks[1].value.toLowerCase() === 'while') {
-      stmts.push({ kind: 'dowhile', cond: stripSemi(toks.slice(2)) });
+      stmts.push({ kind: 'dowhile', cond: stripSemi(toks.slice(2)), indent: l.indent });
       return;
     }
     // preprocessor lines (#define, #include, ...) pass through verbatim
@@ -389,32 +389,32 @@ function parse(sourceText) {
         }
         return;
       }
-      case 'return': stmts.push({ kind: 'return', tokens: stripSemi(toks.slice(1)) }); return;
-      case 'goto': stmts.push({ kind: 'stmt', tokens: [{ type: 'word', value: 'goto' }, ...stripSemi(toks.slice(1))] }); return;
+      case 'return': stmts.push({ kind: 'return', tokens: stripSemi(toks.slice(1)), indent: l.indent }); return;
+      case 'goto': stmts.push({ kind: 'stmt', tokens: [{ type: 'word', value: 'goto' }, ...stripSemi(toks.slice(1))], indent: l.indent }); return;
       case 'out':
       case 'output': {
         // `out -> T;` — a variable named `out` (with a `->` annotation) is a
         // declaration, not an output statement
         if (toks[1] && toks[1].value === '->') {
-          stmts.push({ kind: 'stmt', tokens: toks });
+          stmts.push({ kind: 'stmt', tokens: toks, indent: l.indent });
           return;
         }
-        stmts.push({ kind: 'out', tokens: stripSemi(toks.slice(1)) }); return;
+        stmts.push({ kind: 'out', tokens: stripSemi(toks.slice(1)), indent: l.indent }); return;
       }
       case 'input':
       case 'in': {
         // `in -> T;` — a variable named `in` (with a `->` annotation) is a
         // declaration, not an input statement
         if (toks[1] && toks[1].value === '->') {
-          stmts.push({ kind: 'stmt', tokens: toks });
+          stmts.push({ kind: 'stmt', tokens: toks, indent: l.indent });
           return;
         }
-        stmts.push({ kind: 'input', tokens: stripSemi(toks.slice(1)) }); return;
+        stmts.push({ kind: 'input', tokens: stripSemi(toks.slice(1)), indent: l.indent }); return;
       }
-      case 'break': stmts.push({ kind: 'break' }); return;
-      case 'continue': stmts.push({ kind: 'continue' }); return;
+      case 'break': stmts.push({ kind: 'break', indent: l.indent }); return;
+      case 'continue': stmts.push({ kind: 'continue', indent: l.indent }); return;
       case 'die':
-      case 'pass': stmts.push({ kind: 'empty' }); return;
+      case 'pass': stmts.push({ kind: 'empty', indent: l.indent }); return;
       default: {
         const last = lastOf(toks);
         // single-line C++ function / lambda / block whose `{...}` body sits
@@ -448,6 +448,7 @@ function parse(sourceText) {
               head: toks.slice(0, braceIdx),
               inner,
               tail: stripSemi(after),
+              indent: l.indent,
             });
             return;
           }
@@ -478,7 +479,7 @@ function parse(sourceText) {
           }
           // function/block form: `f() {` / `x = 1; { y = 2; }` + indented body
           const head = stripSemi(toks).filter((t) => t.value !== '{' && t.value !== '}');
-          stmts.push({ kind: 'stmt', tokens: head, body: last.value === '}' ? [] : readBlock(line.indent) });
+          stmts.push({ kind: 'stmt', tokens: head, body: last.value === '}' ? [] : readBlock(line.indent), indent: l.indent });
         } else {
           // multiple statements on one line: `a -> int; b -> int;` or
           // `a = 1; b = 2;` — split at top-level `;`. Embedded `;` inside
@@ -487,7 +488,7 @@ function parse(sourceText) {
           const groups = splitTopSemi(toks);
           for (const g of groups) {
             const w = g.filter((t) => t.value !== ';');
-            if (w.length) stmts.push({ kind: 'stmt', tokens: stripSemi(w) });
+            if (w.length) stmts.push({ kind: 'stmt', tokens: stripSemi(w), indent: l.indent });
           }
         }
       }
@@ -583,11 +584,11 @@ function parse(sourceText) {
         node.els = parseElseBody(n);
       }
     }
-    stmts.push(node);
+    stmts.push({ ...node, indent: l.indent });
   }
 
   function parseElse(l, stmts) {
-    stmts.push({ kind: 'if', cond: null, then: [], elifs: [], els: parseElseBody(l) });
+    stmts.push({ kind: 'if', cond: null, then: [], elifs: [], els: parseElseBody(l), indent: l.indent });
   }
 
   function parseElseBody(l) {
@@ -665,7 +666,7 @@ function parse(sourceText) {
       }
       return n;
     });
-    stmts.push({ kind: 'switch', cond: toks, body });
+    stmts.push({ kind: 'switch', cond: toks, body, indent: l.indent });
   }
 
   function parseCase(l, stmts) {
@@ -694,7 +695,7 @@ function parse(sourceText) {
         body = readBlock(l.indent);
       }
     }
-    stmts.push({ kind: 'case', val, body });
+    stmts.push({ kind: 'case', val, body, indent: l.indent });
   }
 
   // ---------------------------- For / While --------------------------
@@ -732,6 +733,7 @@ function parse(sourceText) {
       cond: parts[1] || [],
       step: parts[2] || [],
       body: parseLoopBody(l, bodyTail),
+      indent: l.indent,
     };
     stmts.push(node);
   }
@@ -753,7 +755,7 @@ function parse(sourceText) {
       cond = toks.slice(0, end);
       bodyTail = stop >= 0 ? toks.slice(stop) : [];
     }
-    stmts.push({ kind: 'while', cond, body: parseLoopBody(l, bodyTail) });
+    stmts.push({ kind: 'while', cond, body: parseLoopBody(l, bodyTail), indent: l.indent });
   }
 
   function parseDo(l, stmts) {
@@ -773,10 +775,10 @@ function parse(sourceText) {
         b.inline = true;
         let tail = toks.slice(closeIdx + 1);
         if (tail.length && tail[0].value.toLowerCase() === 'while') tail = tail.slice(1);
-        stmts.push({ kind: 'do', body: b, cond: stripSemi(tail) });
+        stmts.push({ kind: 'do', body: b, cond: stripSemi(tail), indent: l.indent });
         return;
       }
-      stmts.push({ kind: 'do', body: readBlock(l.indent), cond: [] });
+      stmts.push({ kind: 'do', body: readBlock(l.indent), cond: [], indent: l.indent });
       return;
     }
     // single statement form: `do Out 1; While false;`
@@ -792,7 +794,7 @@ function parse(sourceText) {
     const tail = wi >= 0 ? toks.slice(wi + 1) : [];
     const b = splitTopSemi(head).filter((g) => g.length).map((g) => emitSingle(g));
     b.inline = true;
-    stmts.push({ kind: 'do', body: b, cond: stripSemi(tail) });
+    stmts.push({ kind: 'do', body: b, cond: stripSemi(tail), indent: l.indent });
   }
 
   // For/While body: `{...}` (same line) -> brace block;
@@ -925,7 +927,7 @@ function parse(sourceText) {
         body = readBlock(l.indent);
       }
     }
-    stmts.push({ kind: 'def', name, params, ret, body });
+    stmts.push({ kind: 'def', name, params, ret, body, indent: l.indent });
   }
 
   // ---------------------------- misc ---------------------------------

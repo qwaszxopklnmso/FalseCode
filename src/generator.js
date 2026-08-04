@@ -859,7 +859,7 @@ function gen(ast) {
 
   // Whole if / elif / else chain where every branch is a single inline stmt -> one line.
   function emitBlockMerged(node, indent) {
-    const p = pad(indent);
+    const p = pad(node.indent ?? indent);
     const parts = [];
     let ok = true;
     const push = (head, stmts) => {
@@ -895,7 +895,7 @@ function gen(ast) {
   }
 
   function genStmt(node, indent) {
-    const p = pad(indent);
+    const p = pad(node.indent ?? indent);
     switch (node.kind) {
       case 'inlineCpp': {
         emit(`${p}${inlineStmt(node)}${node.tail.length ? '' : ';'}`);
