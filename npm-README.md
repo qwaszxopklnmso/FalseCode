@@ -42,11 +42,6 @@ Def Main() {
 }
 ```
 
-## 项目主页
-
-GitHub 仓库（含完整源码、测试数据、示例与开发文档）：
-https://github.com/qwaszxopklnmso/FalseCode
-
 ## 许可证
 
 MIT

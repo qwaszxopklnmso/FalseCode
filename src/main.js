@@ -61,6 +61,10 @@ function main(argv) {
     console.error(`input not found: ${srcPath}`);
     process.exit(1);
   }
+  if (fs.statSync(srcPath).isDirectory()) {
+    console.error(`input is a directory, not a file: ${srcPath}`);
+    process.exit(1);
+  }
   const source = fs.readFileSync(srcPath, 'utf8');
   let output;
   try {

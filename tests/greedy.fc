@@ -1,0 +1,34 @@
+struct Range {
+	int l, r;
+};
+Def CmpR(a -> Range, b -> Range) -> bool:
+	If a.l != b.l {
+		Return a.l < b.l;
+	}
+	Return a.r < b.r;
+
+Def Main() {
+	R<> -> Range;
+	r0 = {1, 3} -> Range;
+	R.add(r0);
+	r1 = {2, 5} -> Range;
+	R.add(r1);
+	r2 = {0, 4} -> Range;
+	R.add(r2);
+	r3 = {3, 6} -> Range;
+	R.add(r3);
+	r4 = {5, 7} -> Range;
+	R.add(r4);
+	sort(R.begin(), R.end(), CmpR);
+	cnt = 0 -> int;
+	last = -1 -> int;
+	For i = 0 -> int; i < R.len; i = i + 1 {
+		If R[i].l > last {
+			cnt = cnt + 1;
+			last = R[i].r;
+		}
+	}
+	Out cnt;
+	Out Nl;
+	Return 0;
+}

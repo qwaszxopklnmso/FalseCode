@@ -1,0 +1,54 @@
+struct Edge {
+	int u, v, w;
+};
+Def Cmp(a -> Edge, b -> Edge) -> bool:
+	Return a.w < b.w;
+
+fa[5] -> int;
+
+Def Find(x -> int) -> int:
+	If fa[x] == x {
+		Return x;
+	}
+	Return Find(fa[x]);
+
+Def Union(x -> int, y -> int):
+	fx = Find(x) -> int;
+	fy = Find(y) -> int;
+	If fx != fy {
+		fa[fx] = fy;
+	}
+
+Def Main() {
+	For i = 0 -> int; i < 5; i = i + 1 {
+		fa[i] = i;
+	}
+	edges<> -> Edge;
+	e0 = {0, 1, 4} -> Edge;
+	edges.add(e0);
+	e1 = {1, 2, 8} -> Edge;
+	edges.add(e1);
+	e2 = {0, 2, 2} -> Edge;
+	edges.add(e2);
+	e3 = {2, 3, 7} -> Edge;
+	edges.add(e3);
+	e4 = {3, 4, 9} -> Edge;
+	edges.add(e4);
+	e5 = {2, 4, 3} -> Edge;
+	edges.add(e5);
+	e6 = {1, 3, 5} -> Edge;
+	edges.add(e6);
+	sort(edges.begin(), edges.end(), Cmp);
+	ans = 0 -> int;
+	For i = 0 -> int; i < edges.len; i = i + 1 {
+		u = edges[i].u -> int;
+		v = edges[i].v -> int;
+		If Find(u) != Find(v) {
+			ans = ans + edges[i].w;
+			Union(u, v);
+		}
+	}
+	Out ans;
+	Out Nl;
+	Return 0;
+}
