@@ -1,7 +1,0 @@
-Def Main() {
-	x = 5 -> int;
-	y = 10 -> int;
-	z = 20 -> int;
-	Out y << x >> z --> y, Nl;
-	Return 0;
-}

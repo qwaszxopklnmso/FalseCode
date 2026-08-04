@@ -1,5 +1,0 @@
-Def Main() {
-	x = 1 << 2 >> 3 - 4 > 5;
-	Out x, Nl;
-	Return 0;
-}
