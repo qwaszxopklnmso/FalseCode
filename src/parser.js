@@ -35,6 +35,9 @@ function parse(sourceText) {
     const open = { '(': ')', '[': ']', '{': '}' };
     const stack = [];  // {ch, icon}
     for (const l of lines) {
+      // `#` preprocessor lines (e.g. `#define BEGIN {`) pass through verbatim
+      // and must not participate in delimiter pairing
+      if (l.tokens.length && l.tokens[0].value === '#') continue;
       for (const t of l.tokens) {
         if (t.type === 'comment' || t.type === 'triquote' ||
             t.type === 'str' || t.type === 'chr') continue;
@@ -460,17 +463,25 @@ function parse(sourceText) {
           }
           const after = closeIdx >= 0 ? toks.slice(closeIdx + 1) : [];
           if (closeIdx >= 0 && !after.some((t) => t.value === '->')) {
-            const inner = splitTopSemi(toks.slice(braceIdx + 1, closeIdx))
-              .filter((g) => g.length).map((g) => emitSingle(g));
-            inner.inline = true;
-            push({
-              kind: 'inlineCpp',
-              head: toks.slice(0, braceIdx),
-              inner,
-              tail: stripSemi(after),
-              indent: l.indent,
-            });
-            return;
+            // `x = {1,2,3};` is a brace-init list, NOT an inline C++ block:
+            // an inline block's head must look like a function/lambda/ctrl
+            // head (`f(...)`, `[](..)`, `if (...)`, `type name`) — a head
+            // ending in bare `=` is an assignment initializer.
+            const head0 = toks.slice(0, braceIdx);
+            const lastHead = head0[head0.length - 1];
+            if (!(lastHead && lastHead.value === '=')) {
+              const inner = splitTopSemi(toks.slice(braceIdx + 1, closeIdx))
+                .filter((g) => g.length).map((g) => emitSingle(g));
+              inner.inline = true;
+              push({
+                kind: 'inlineCpp',
+                head: head0,
+                inner,
+                tail: stripSemi(after),
+                indent: l.indent,
+              });
+              return;
+            }
           }
         }
         if (last && last.value === '{') {

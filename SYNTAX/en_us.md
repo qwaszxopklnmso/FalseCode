@@ -151,7 +151,7 @@ For i = 0 -> int; i < 5; ++i {
 |--------|---------|
 | `^^=` | power: `a ^^= b;` → `a = pow(a, b);` |
 | `a ^^ b` | power in expressions: `Out 2 ^^ 3 ^^ 2;` → `pow(2, pow(3, 2))` (right-assoc) |
-| `a ##` / `## a` | set to zero: `a##;` → `a = 0;`; whole-array zeroing (`memset`/`assign`); string `clear()` |
+| `a ##` / `## a` | set to zero: `a##;` → `a = 0;`; whole-array zeroing (`memset`); vector/string `clear()` |
 | `^` / `^=` | bitwise XOR, passes through (same as C++) |
 | everything else | `==` `!=` `+=` `-=` `*=` `/=` `%=` `++` `--` `?:` etc. — same as C++ |
 

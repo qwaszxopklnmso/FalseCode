@@ -36,7 +36,7 @@ function gen(ast) {
   // `.remove()` -> `erase`.
   const sets = new Set();
 
-  const isSetType = (text) => /^(set|map|unordered_map)\s*</i.test(text || '');
+  const isSetType = (text) => /^(std\s*::\s*)?(set|map|unordered_map)\s*</i.test(text || '');
 
   // Scoped registry: `reg` points at the global tables outside functions,
   // and at a per-function snapshot inside a `def` body. This way a local
@@ -81,6 +81,18 @@ function gen(ast) {
   function isTypeLike(tokens, i) {
     const rest = tokens.slice(i + 1)
       .filter((x) => x.value !== '*' && x.value !== '[' && x.value !== ']');
+    // a top-level `=` right after the annotation target means member
+    // assignment, not a type: `p->int = 2;` (a declaration's `=` sits
+    // *before* the `->`: `x = 1 -> int;`)
+    {
+      let depth = 0;
+      for (const x of rest) {
+        const v = x.value;
+        if (v === '<' || v === '(' || v === '[') depth++;
+        else if (v === '>' || v === ')' || v === ']') depth--;
+        else if (depth === 0 && v === '=') return false;
+      }
+    }
     const joined = rest.map((x) => x.value).join(' ');
     if (TYPE_WORD.test(joined)) return true;
     if (!rest.length || rest[0].type !== 'word') return false;
@@ -128,6 +140,7 @@ function gen(ast) {
     // remove spaces around dot accessors
     s = s.replace(/\s*\.\s*/g, '.');
     s = s.replace(/\s*::\s*/g, '::');
+    s = s.replace(/\s*->\s*/g, '->');
     // tighten array subscripts: c [ 0 ] -> c[0]
     s = s.replace(/(\S)\s+\[/g, '$1[');
     s = s.replace(/\[\s+/g, '[');
@@ -172,13 +185,14 @@ function gen(ast) {
   }
 
   function exp(tokens) {
-    let s = convertBraceKeywords(toText(tokens));
-    // Protect string/char literals from operator rewrites below.
+    // Protect string/char literals from ALL rewrites below (incl.
+    // convertBraceKeywords, which would mangle `"{ Return }"` inside a string)
     const strs = [];
-    s = s.replace(/(["'])(?:\\.|(?!\1).)*\1/g, (m) => {
+    let s = toText(tokens).replace(/(["'])(?:\\.|(?!\1).)*\1/g, (m) => {
       strs.push(m);
       return `\u0000${strs.length - 1}\u0000`;
     });
+    s = convertBraceKeywords(s);
     s = s.replace(/([A-Za-z_]\w*)\.(add|remove)\s*\(/g, '\u0002$1\u0003$2(');
     s = dropParenArgs(s);
     s = s.replace(/([A-Za-z_]\w*)\.len\b/g, (m, nm) => {
@@ -217,11 +231,14 @@ function gen(ast) {
           i++;
         }
         const arg = s.slice(argStart, i - 1);
+        // nested `.add()` inside the argument (`a.add(b.add(1))`) leaves
+        // markers in `arg` — recurse so they expand too
+        const argOut = arg.includes('\u0002') ? dropParenArgs(arg) : arg;
         const isSet = reg.sets.has(nm);
         if (op === 'add') {
-          out += isSet ? `${nm}.insert(${arg})` : `${nm}.push_back(${arg})`;
+          out += isSet ? `${nm}.insert(${argOut})` : `${nm}.push_back(${argOut})`;
         } else {
-          out += isSet ? `${nm}.erase(${arg})` : `${nm}.pop_back()`;
+          out += isSet ? `${nm}.erase(${argOut})` : `${nm}.pop_back()`;
         }
       } else {
         out += s[i];
@@ -253,6 +270,11 @@ function gen(ast) {
       return i + 1;
     }
     while (i >= 0 && /[\w\.]/.test(s[i])) i--;
+    // swallow member chains (`p->v`, `ns::x`) into the operand
+    while (i >= 1 && ((s[i] === '>' && s[i - 1] === '-') || (s[i] === ':' && s[i - 1] === ':'))) {
+      i -= 2;
+      while (i >= 0 && /[\w\.]/.test(s[i])) i--;
+    }
     return i + 1;
   }
 
@@ -277,6 +299,11 @@ function gen(ast) {
       return j - 1;
     }
     while (j < s.length && /[\w\.]/.test(s[j])) j++;
+    // swallow member chains (`p->v`, `ns::x`) into the operand
+    while (j + 1 < s.length && ((s[j] === '-' && s[j + 1] === '>') || (s[j] === ':' && s[j + 1] === ':'))) {
+      j += 2;
+      while (j < s.length && /[\w\.]/.test(s[j])) j++;
+    }
     // swallow immediately-following call/subscript groups: `f(x)`, `arr[i]`
     while (j < s.length && (s[j] === '(' || s[j] === '[')) {
       const open = s[j];
@@ -672,9 +699,10 @@ function gen(ast) {
       const type = typeCpp(tokens.slice(ann + 1).map((t) => t.value).join(' ').trim());
       const before = tokens.slice(0, ann);
       const eq = before.findIndex((t) => t.value === '=');
-      const name = before.slice(0, eq).map((t) => t.value).join('');
-      const val = expNoSemi(before.slice(eq + 1));
-      return `${type} ${name} = ${val}`;
+      // `name -> type;` (no `=`) declares without initializer
+      const name = before.slice(0, eq >= 0 ? eq : before.length).map((t) => t.value).join('');
+      const val = eq >= 0 ? expNoSemi(before.slice(eq + 1)) : '';
+      return `${type} ${name}${eq >= 0 ? ` = ${val}` : ''}`;
     }
     return expNoSemi(tokens);
   }
@@ -1087,6 +1115,16 @@ function gen(ast) {
           emit(`${p}${ret} ${node.name}(${params});`);
           return;
         }
+        // register params in a fresh scope so they never leak into the
+        // global registry (a `def f(v<> -> int)` must not overwrite a
+        // global `v[10] -> int`)
+        const savedReg = reg;
+        reg = {
+          arrays: new Map(reg.arrays),
+          strings: new Set(reg.strings),
+          sets: new Set(reg.sets),
+          queues: new Map(reg.queues),
+        };
         const params = node.params.map((pp) => {
           if (pp.name === 'argc') return 'int argc';
           if (pp.name === 'argv') return 'char** argv';
@@ -1114,13 +1152,6 @@ function gen(ast) {
             : (hasReturnValue(node.body) ? 'int' : 'void'));
         const fname = isMain ? 'main' : node.name;
         emit(`${p}${ret} ${fname}(${params}) {`);
-        const savedReg = reg;
-        reg = {
-          arrays: new Map(reg.arrays),
-          strings: new Set(reg.strings),
-          sets: new Set(reg.sets),
-          queues: new Map(reg.queues),
-        };
         genBlock(node.body, indent + 1);
         reg = savedReg;
         if (isMain && !hasReturn(node.body)) emit(`${p}\treturn 0;`);
