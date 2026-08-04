@@ -141,6 +141,7 @@ function parse(sourceText) {
       case 'die':
       case 'pass': return { kind: 'empty' };
       case 'return': return { kind: 'return', tokens: rest };
+      case 'goto': return { kind: 'stmt', tokens: [{ type: 'word', value: 'goto' }, ...rest] };
       case 'out':
       case 'output': return { kind: 'out', tokens: rest };
       case 'input': return { kind: 'input', tokens: rest };
@@ -389,10 +390,27 @@ function parse(sourceText) {
         return;
       }
       case 'return': stmts.push({ kind: 'return', tokens: stripSemi(toks.slice(1)) }); return;
+      case 'goto': stmts.push({ kind: 'stmt', tokens: [{ type: 'word', value: 'goto' }, ...stripSemi(toks.slice(1))] }); return;
       case 'out':
-      case 'output': stmts.push({ kind: 'out', tokens: stripSemi(toks.slice(1)) }); return;
+      case 'output': {
+        // `out -> T;` — a variable named `out` (with a `->` annotation) is a
+        // declaration, not an output statement
+        if (toks[1] && toks[1].value === '->') {
+          stmts.push({ kind: 'stmt', tokens: toks });
+          return;
+        }
+        stmts.push({ kind: 'out', tokens: stripSemi(toks.slice(1)) }); return;
+      }
       case 'input':
-      case 'in': stmts.push({ kind: 'input', tokens: stripSemi(toks.slice(1)) }); return;
+      case 'in': {
+        // `in -> T;` — a variable named `in` (with a `->` annotation) is a
+        // declaration, not an input statement
+        if (toks[1] && toks[1].value === '->') {
+          stmts.push({ kind: 'stmt', tokens: toks });
+          return;
+        }
+        stmts.push({ kind: 'input', tokens: stripSemi(toks.slice(1)) }); return;
+      }
       case 'break': stmts.push({ kind: 'break' }); return;
       case 'continue': stmts.push({ kind: 'continue' }); return;
       case 'die':
@@ -499,8 +517,11 @@ function parse(sourceText) {
         ic.tail = [];
       }
     }
-    // chain elif / else at the same indent
-    const inlineHead = node.then.inline === true;
+    // chain elif / else at the same indent. `inlineHead` tracks whether the
+    // LAST branch was single-statement (inline): a block branch (readBlock)
+    // needs its closing `}` consumed, so `} Else {` / bare `}` lines stay
+    // valid once any block branch was opened.
+    let inlineHead = node.then.inline === true;
     while (!atEnd() || pending.length) {
       const chainStart = pos;
       const fromPending = pending.length > 0;
@@ -538,6 +559,7 @@ function parse(sourceText) {
         const then = e.inline ? [e.inline] : readBlock(n.indent);
         then.inline = !!e.inline;
         node.elifs.push({ cond: e.cond, then });
+        if (!e.inline) inlineHead = false;
         // an elif's own inlineCpp may still carry a tail chain:
         // `If A Then x; Elif B Then y; Else { z; }` — the tail is in e.inline.
         if (e.inline && e.inline.kind === 'inlineCpp' && e.inline.tail.length) {
@@ -555,6 +577,7 @@ function parse(sourceText) {
           const then = e.inline ? [e.inline] : readBlock(n.indent);
           then.inline = !!e.inline;
           node.elifs.push({ cond: e.cond, then });
+          if (!e.inline) inlineHead = false;
           continue;
         }
         node.els = parseElseBody(n);
@@ -695,10 +718,13 @@ function parse(sourceText) {
         else if (v === ')' || v === ']') depth--;
         else if (depth === 0 && v.toLowerCase() === 'then') { thenIdx = i; break; }
       }
-      const splitAt = braceIdx >= 0 ? braceIdx : (thenIdx >= 0 ? thenIdx : toks.length);
-      const head = toks.slice(0, splitAt);
+      // `Then {` at the end is a block header, not part of the loop header:
+      // split at `Then` first (`For i=0; i<3; ++i Then {`), else at `{`
+      // (`For i=0; i<3; ++i {`), else at the end.
+      const tailAt = thenIdx >= 0 ? thenIdx : (braceIdx >= 0 ? braceIdx : toks.length);
+      const head = toks.slice(0, tailAt);
       parts = splitSemi(head);
-      bodyTail = braceIdx >= 0 ? toks.slice(braceIdx) : (thenIdx >= 0 ? toks.slice(thenIdx) : []);
+      bodyTail = toks.slice(tailAt);
     }
     const node = {
       kind: 'for',
@@ -987,6 +1013,16 @@ function parse(sourceText) {
       // `If c Then stmt; Elif c2 Then stmt2; Else { ... }` — split the Then body
       // from the trailing Elif/Else so parseIf can chain it.
       const rest = w.slice(thenIdx + 1);
+      // `If cond Then` with no body on the same line: the body follows on
+      // indented lines — leave inline=null so parseIf readBlock's it.
+      if (!rest.length) return { cond: unparen(condToks), inline: null };
+      // `If cond Then {` with a `{` that does not close on this line is a
+      // cross-line block header — the `{` belongs to the block, not to a
+      // single statement. Leave inline=null so parseIf readBlock's the body
+      // (and the generator prints the `{` itself).
+      if (rest.length && rest[0].value === '{' && !rest.some((t) => t.value === '}')) {
+        return { cond: unparen(condToks), inline: null };
+      }
       let chainAt = -1, dep = 0;
       for (let i = 0; i < rest.length; i++) {
         const v = rest[i].value;
