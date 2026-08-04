@@ -81,6 +81,12 @@ function tokenizeLine(line) {
       tokens.push({ type: TOKEN_TYPES.COMMENT, value: line.slice(i) });
       break;
     }
+    // `//` line comment (C++-style) — kept as a comment token so the
+    // generator can emit it into the C++ output.
+    if (c === '/' && line[i + 1] === '/') {
+      tokens.push({ type: TOKEN_TYPES.COMMENT, value: line.slice(i) });
+      break;
+    }
     // strip `\`-escaped `\x` forms handled below via operators.
     if (c === '"' || c === "'") {
       let j = i + 1;
@@ -180,30 +186,81 @@ function preprocess(src) {
   const rawLines = src.replace(/\r\n/g, '\n').split('\n');
   const out = [];
   let inBacktick = false;
+  let block = null; // {head, indent, content: []} for ``` comment blocks
   rawLines.forEach((raw, idx) => {
     const lineNo = idx + 1;
-    // Handle backtick-triple comment toggles first.
-    // Count all sequences of ``` in the line that are outside strings.
     const toggles = countTripleToggles(raw);
     if (inBacktick) {
-      if (toggles === 1) { inBacktick = false; }
-      // a closing ``` restores code on the same line after it
-      if (toggles === 2) { /* opening+closing on same line */ }
-      return; // whole line consumed as comment
+      // collecting a ``` comment block
+      if (toggles === 1) {
+        // closing fence: flush the block as a /* */ comment line
+        inBacktick = false;
+        const content = block.content.join('\n');
+        out.push({
+          text: `/*${content ? '\n' + content + '\n' : ''}*/`,
+          indent: block.indent,
+          lineNo,
+          comment: true,
+          tokens: [],
+        });
+        block = null;
+      } else if (toggles === 2) {
+        // opening+closing on the same line inside a block: treat the
+        // middle as content and close
+        const i1 = raw.indexOf('```');
+        const i2 = raw.indexOf('```', i1 + 3);
+        block.content.push(raw.slice(i1 + 3, i2));
+        inBacktick = false;
+        const content = block.content.join('\n');
+        out.push({
+          text: `/*${content ? '\n' + content + '\n' : ''}*/`,
+          indent: block.indent,
+          lineNo,
+          comment: true,
+          tokens: [],
+        });
+        block = null;
+      } else {
+        block.content.push(raw);
+      }
+      return;
     }
     if (toggles === 1) {
-      // opening triple comment; strip the code before it and mark inBacktick
+      // opening triple comment; keep the code before it, then collect
       const idxTriple = raw.indexOf('```');
       let head = raw.slice(0, idxTriple);
-      // remove single-line `//` comments and trailing whitespace from head
       head = stripLineComment(head);
       inBacktick = true;
+      block = { head, indent: indentLevelOf(raw), content: [] };
       if (head.trim().length === 0) return;
       raw = head;
+    } else if (toggles === 2) {
+      // inline ` ``` comment ``` ` pair on the same line -> /* comment */
+      const i1 = raw.indexOf('```');
+      const i2 = raw.indexOf('```', i1 + 3);
+      const comment = raw.slice(i1 + 3, i2);
+      const tail = raw.slice(i2 + 3);
+      let head = stripLineComment(raw.slice(0, i1));
+      const indent = indentLevelOf(raw);
+      if (head.trim().length === 0 && tail.trim().length === 0) {
+        out.push({
+          text: `/*${comment}*/`,
+          indent,
+          lineNo,
+          comment: true,
+          tokens: [],
+        });
+        return;
+      }
+      // keep the comment as a trailing comment token so it survives into C++
+      const tokens = tokenizeLine((head + ' ' + tail).trimStart());
+      tokens.push({ type: TOKEN_TYPES.COMMENT, value: `/*${comment}*/` });
+      out.push({ text: head + tail, indent, lineNo, tokens });
+      return;
     } else {
-      const stripped = stripLineComment(raw);
-      if (stripped.trim().length === 0) return;
-      raw = stripped;
+      // `//` comments are now kept as comment tokens (C++-style) — the
+      // code part still needs stripping for the code tokens below.
+      raw = raw;
     }
     const indent = indentLevelOf(raw);
     const tokens = tokenizeLine(raw.trimStart());
@@ -212,7 +269,8 @@ function preprocess(src) {
   return out;
 }
 
-/** Count occurrences of the triple-backtick fence not inside strings. */
+/** Count occurrences of the triple-backtick fence not inside strings
+ *  or `//` line comments. */
 function countTripleToggles(line) {
   let count = 0;
   let i = 0;
@@ -232,6 +290,9 @@ function countTripleToggles(line) {
       }
       i = Math.max(j + 1, i + 1);
       continue;
+    }
+    if (c === '/' && line[i + 1] === '/') {
+      return count;   // `//` comment: the rest of the line is not code
     }
     i++;
   }

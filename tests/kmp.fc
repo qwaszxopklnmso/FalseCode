@@ -1,0 +1,38 @@
+Def KMP(s -> string, p -> string) -> int:
+	next<> -> int;
+	next.add(-1);
+	j = -1 -> int;
+	For i = 1 -> int; i < p.len; i = i + 1 {
+		While j >= 0 && p[j + 1] != p[i] {
+			j = next[j];
+		}
+		If p[j + 1] == p[i] {
+			j = j + 1;
+		}
+		next.add(j);
+	}
+	j = -1;
+	For i = 0 -> int; i < s.len; i = i + 1 {
+		While j >= 0 && p[j + 1] != s[i] {
+			j = next[j];
+		}
+		If p[j + 1] == s[i] {
+			j = j + 1;
+		}
+		If j == p.len - 1 {
+			Return i - p.len + 1;
+		}
+	}
+	Return -1;
+
+Def Main():
+	pos = KMP("abcabcabcabc", "cabc") -> int;
+	Out pos;
+	Out Nl;
+	pos = KMP("hello world", "world");
+	Out pos;
+	Out Nl;
+	pos = KMP("aaaa", "bb");
+	Out pos;
+	Out Nl;
+	Return 0;

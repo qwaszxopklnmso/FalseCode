@@ -14,7 +14,7 @@ using namespace std;`;
 function gen(ast) {
   const lines = [];
   const emit = (s = '') => lines.push(s);
-  const pad = (n) => '  '.repeat(n);
+  const pad = (n) => '\t'.repeat(n);
 
   // Record declared array shapes so statements like `i##;` can know
   // whether a name is a fixed C array, a vector, or a scalar.
@@ -364,6 +364,28 @@ function gen(ast) {
     return exp(squeezeSemi(tokens));
   }
 
+  // a type annotation may carry `<>`: `x -> char<>` == `x<> -> char`
+  // (declarator suffix is redundant then); `v<>` -> `vector<v>`.
+  const parseAnnotationAngle = (typeTok) => {
+    const lt = typeTok.findIndex((t) => t.value === '<' || t.value === '<<');
+    if (lt < 0) return null;
+    const flat = typeTok.slice(lt).flatMap((t) =>
+      t.value === '<<' ? ['<', '<'] : t.value === '>>' ? ['>', '>'] : [t.value]);
+    const open = flat.filter((v) => v === '<').length;
+    const close = flat.filter((v) => v === '>').length;
+    if (!open || open !== close || flat.some((v) => v !== '<' && v !== '>')) return null;
+    return { base: typeTok.slice(0, lt).map((t) => t.value).join(' ').trim(), open };
+  };
+
+  // def return type: `-> string<>` -> `vector<string>`, `-> int` -> `int`
+  const retTypeCpp = (tokens) => {
+    const angle = parseAnnotationAngle(tokens);
+    if (angle) {
+      return `${'vector<'.repeat(angle.open)}${typeCpp(angle.base)}${'>'.repeat(angle.open)}`;
+    }
+    return typeCpp(expNoSemi(tokens));
+  };
+
   // ---------------------------------------------------------------
   //  Statement-level translation (assignment / declaration / custom ops)
   const TYPE_WORD = /^(int|long|short|char|float|double|bool|void|string|auto|unsigned|signed|size_t|ll|ull|u?int(8|16|32|64)_t|__int128|long\s+long|unsigned\s+(char|short|int|long|long\s+long)(\s+int)?|signed\s+(char|short|int|long|long\s+long)(\s+int)?)$/i;
@@ -411,16 +433,7 @@ function gen(ast) {
 
     // a type annotation may carry `<>`: `x -> char<>` == `x<> -> char`
     // (declarator suffix is redundant then); `v<>` -> `vector<v>`.
-    const parseAnnotationAngle = (typeTok) => {
-      const lt = typeTok.findIndex((t) => t.value === '<' || t.value === '<<');
-      if (lt < 0) return null;
-      const flat = typeTok.slice(lt).flatMap((t) =>
-        t.value === '<<' ? ['<', '<'] : t.value === '>>' ? ['>', '>'] : [t.value]);
-      const open = flat.filter((v) => v === '<').length;
-      const close = flat.filter((v) => v === '>').length;
-      if (!open || open !== close || flat.some((v) => v !== '<' && v !== '>')) return null;
-      return { base: typeTok.slice(0, lt).map((t) => t.value).join(' ').trim(), open };
-    };
+    // (defined at generator scope, shared with the def return-type path)
 
     // declaration name: the single identifier before any `[`/`<`/`=` suffix
     const nameFrom = (slice) => {
@@ -488,7 +501,10 @@ function gen(ast) {
       // annotation `<>` wins over the declarator: `c[10] -> v<>` -> `vector<v> c[10]`
       if (annAngle) {
         const name = nameFrom(declLHS);
-        reg.arrays.set(name, { kind: 'vector' });
+        reg.arrays.set(name, { kind: 'vector', nested: annAngle.open > 1 });
+        if (eqIdx >= 0 && eqIdx < annIdx) {
+          return `${'vector<'.repeat(annAngle.open)}${typeCpp(annAngle.base)}${'>'.repeat(annAngle.open)} ${name}${declDims(declLHS)} = ${expNoSemi(tokens.slice(eqIdx + 1, annIdx))};`;
+        }
         return `${'vector<'.repeat(annAngle.open)}${typeCpp(annAngle.base)}${'>'.repeat(annAngle.open)} ${name}${declDims(declLHS)};`;
       }
 
@@ -510,7 +526,7 @@ function gen(ast) {
         if (openCount !== closeCount || !openCount || flat.some((v) => v !== '<' && v !== '>')) {
           throw new Error(`invalid dynamic array '${name}<>': expected balanced '<' '>' pairs (e.g. x<> or vec<<>>)`);
         }
-        reg.arrays.set(name, { kind: 'vector' });
+        reg.arrays.set(name, { kind: 'vector', nested: openCount > 1 });
         if (eqIdx >= 0 && eqIdx < annIdx) {
           throw new Error(`dynamic array '${name}<>' cannot take an initializer ('= ${expNoSemi(tokens.slice(eqIdx + 1, annIdx))}')`);
         }
@@ -632,13 +648,13 @@ function gen(ast) {
         const rhs = expNoSemi(tokens.slice(1));
         const info = reg.arrays.get(rhs);
         if (info && info.kind === 'fixed') return `memset(${rhs}, 0, sizeof(${rhs}));`;
-        if (info && info.kind === 'vector') return `${rhs}.assign(${rhs}.size(), 0);`;
+        if (info && info.kind === 'vector') return `${rhs}.clear();`;
         return strReset(rhs) || setReset(rhs) || queReset(rhs) || `${rhs} = 0;`;
       }
       const lhs = tokens.slice(0, zeroIdx).map((t) => t.value).join('');
       const info = reg.arrays.get(lhs);
       if (info && info.kind === 'fixed') return `memset(${lhs}, 0, sizeof(${lhs}));`;
-      if (info && info.kind === 'vector') return `${lhs}.assign(${lhs}.size(), 0);`;
+      if (info && info.kind === 'vector') return `${lhs}.clear();`;
       return strReset(lhs) || setReset(lhs) || queReset(lhs) || `${lhs} = 0;`;
     }
 
@@ -896,6 +912,7 @@ function gen(ast) {
 
   function genStmt(node, indent) {
     const p = pad(node.indent ?? indent);
+    const tl = node.tail ? ` ${node.tail}` : '';
     switch (node.kind) {
       case 'inlineCpp': {
         emit(`${p}${inlineStmt(node)}${node.tail.length ? '' : ';'}`);
@@ -917,12 +934,12 @@ function gen(ast) {
           reg = savedReg;
           emit(`${p}}`);
         } else {
-          emit(`${p}${stmtCpp(squeezeSemi(node.tokens))}`);
+          emit(`${p}${stmtCpp(squeezeSemi(node.tokens))}${tl}`);
         }
         return;
       }
       case 'raw':
-        for (const ln of node.text.split('\n')) emit(`${p}${ln}`);
+        for (const ln of node.text.split('\n')) emit(`${p}${ln.replace(/^\s+/, '')}`);
         return;
       case 'block':
         genBlock(node.stmts, indent);
@@ -937,7 +954,7 @@ function gen(ast) {
           // wrap: `cout << a & b` would parse as `(cout << a) & b`
           return `(${exp(a)})`;
         });
-        if (parts.length) emit(`${p}cout << ${parts.join(' << ')};`);
+        if (parts.length) emit(`${p}cout << ${parts.join(' << ')};${tl}`);
         return;
       }
       case 'input': {
@@ -948,22 +965,22 @@ function gen(ast) {
         args = args.map((a) =>
           a[0] && a[0].value.toLowerCase() === 'to' ? a.slice(1) : a);
         const parsed = args.filter((a) => a.length).map((a) => exp(a));
-        if (parsed.length) emit(`${p}cin >> ${parsed.join(' >> ')};`);
+        if (parsed.length) emit(`${p}cin >> ${parsed.join(' >> ')};${tl}`);
         return;
       }
       case 'return': {
         const e = node.tokens.length ? expNoSemi(node.tokens) : '';
-        emit(`${p}return ${e};`);
+        emit(`${p}return ${e};${tl}`);
         return;
       }
       case 'break':
-        emit(`${p}break;`);
+        emit(`${p}break;${tl}`);
         return;
       case 'continue':
-        emit(`${p}continue;`);
+        emit(`${p}continue;${tl}`);
         return;
       case 'empty':
-        emit(`${p}`);
+        emit(`${p}${tl}`);
         return;
       case 'if': {
         if (node.cond !== null) {
@@ -988,15 +1005,15 @@ function gen(ast) {
         for (const c of node.body) {
           if (c.kind !== 'case') { genStmt(c, indent + 1); continue; }
           if (c.val === null || c.val.length === 0) {
-            emit(`${p}  default: {`);
+            emit(`${p}\tdefault: {`);
             genBlock(c.body, indent + 2);
-            emit(`${p}  }`);
+            emit(`${p}\t}`);
             continue;
           }
-          emit(`${p}  case ${expNoSemi(c.val)}: {`);
+          emit(`${p}\tcase ${expNoSemi(c.val)}: {`);
           genBlock(c.body, indent + 2);
-          emit(`${p}    break;`);
-          emit(`${p}  }`);
+          emit(`${p}\t\tbreak;`);
+          emit(`${p}\t}`);
         }
         emit(`${p}}`);
         return;
@@ -1058,14 +1075,14 @@ function gen(ast) {
         if (node.body === null) {
           const params = node.params.map((pp) => {
             const t = plainType(pp.type) || 'int';
-            if (pp.nesting) return `${'vector<'.repeat(pp.nesting)}${t}${'>'.repeat(pp.nesting)} ${pp.name}`;
-            if (pp.array) return pp.size ? `${t} ${pp.name}[${pp.size}]` : `vector<${t}> ${pp.name}`;
+            if (pp.nesting) return `${'vector<'.repeat(pp.nesting)}${t}${'>'.repeat(pp.nesting)}& ${pp.name}`;
+            if (pp.array) return pp.size ? `${t} ${pp.name}[${pp.size}]` : `vector<${t}>& ${pp.name}`;
             return `${t} ${pp.name}`;
           }).join(', ');
           // ret is unknown from the declaration alone; use the later
           // definition's inferred return type when available
           const ret = isMain ? 'int'
-            : (node.ret.length ? typeCpp(expNoSemi(node.ret))
+            : (node.ret.length ? retTypeCpp(node.ret)
               : (defRet.get(node.name) || 'void'));
           emit(`${p}${ret} ${node.name}(${params});`);
           return;
@@ -1076,7 +1093,7 @@ function gen(ast) {
           const t = plainType(pp.type) || 'int';
           if (pp.nesting) {
             reg.arrays.set(pp.name, { kind: 'vector' });
-            return `${'vector<'.repeat(pp.nesting)}${t}${'>'.repeat(pp.nesting)} ${pp.name}`;
+            return `${'vector<'.repeat(pp.nesting)}${t}${'>'.repeat(pp.nesting)}& ${pp.name}`;
           }
           if (pp.array) {
             if (pp.size) {
@@ -1084,7 +1101,7 @@ function gen(ast) {
               return `${t} ${pp.name}[${pp.size}]`;
             }
             reg.arrays.set(pp.name, { kind: 'vector' });
-            return `vector<${t}> ${pp.name}`;
+            return `vector<${t}>& ${pp.name}`;
           }
           if (isStringType(pp.type)) reg.strings.add(pp.name);
           if (isSetType(pp.type)) reg.sets.add(pp.name);
@@ -1093,7 +1110,7 @@ function gen(ast) {
         const ret = isMain
           ? 'int'
           : (node.ret.length
-            ? typeCpp(expNoSemi(node.ret))
+            ? retTypeCpp(node.ret)
             : (hasReturnValue(node.body) ? 'int' : 'void'));
         const fname = isMain ? 'main' : node.name;
         emit(`${p}${ret} ${fname}(${params}) {`);
@@ -1106,7 +1123,7 @@ function gen(ast) {
         };
         genBlock(node.body, indent + 1);
         reg = savedReg;
-        if (isMain && !hasReturn(node.body)) emit(`${p}  return 0;`);
+        if (isMain && !hasReturn(node.body)) emit(`${p}\treturn 0;`);
         emit(`${p}}`);
         return;
       }

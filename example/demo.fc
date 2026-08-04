@@ -1,80 +1,94 @@
+typedef uint8_t u8t;
+struct S1{
+	u8t chr1='A';
+	Def func() -> void {
+		Out 114514;
+		Out chr1;
+		return;
+	}
+} S12[2];
 Def Main() {
-    a = 2 -> int;
-    b = 3 -> long;
+	S12[1].func();
+	a = 2 -> int;
+	b = 3 -> long;
 
-    If a == 1 ?
-        Out "a is one";
-        Out Nl;
-    Elif a == 2 Then Out "a is two";
-    Elif a == 3 ?
-        Out "a is three";
-    Else Then Out "a is unknown";
+	If a == 1 ?
+		Out "a is one";
+		Out Nl;
+	Elif a == 2 Then Out "a is two";
+	Elif a == 3 ?
+		Out "a is three";
+	Else Then Out "a is unknown";
 
-    Out Nl;
-    Out "a=";
-    Out a;
-    Out Nl;
+	Out Nl;
+	Out "a=";
+	Out a;
+	Out Nl;
 
-    For (i = 0 -> int; ++i < 5; ++i) {
-        Out i;
-        Out Nl;
-    }
+	For (i = 0 -> int; ++i < 5; ++i) {
+		Out i;
+		Out Nl;
+	}
 
-    x = 3 -> int;
-    k = 3 -> int;
-    x ^^= k;
-    Out x;
-    Out Nl;
+	x = 3 -> int;
+	k = 3 -> int;
+	x ^^= k;
+	Out x;
+	Out Nl;
 
-    v = 10 -> int;
-    v = v / 4;
-    Out v;
-    Out Nl;
+	v = 10 -> int;
+	v = v / 4;
+	Out v;
+	Out Nl;
 
-    y = 7 -> int;
-    y = ~y;
-    Out y;
-    Out Nl;
+	y = 7 -> int;
+	y = ~y;
+	Out y;
+	Out Nl;
 
-    z = 100 -> int;
-    z ##;
-    Out z;
-    Out Nl;
+	z = 100 -> int;
+	z ##;
+	Out z;
+	Out Nl;
 
-    arr<> -> int;
-    arr.add(10);
-    arr.add(20);
-    arr.add(30);
-    Out arr[0] + arr[1] + arr[2];
-    Out Nl;
-    Out arr.len;
-    Out Nl;
-    arr.remove(2);
-    Out arr.len;
-    Out Nl;
+	arr<> -> int;
+	arr.add(10);
+	arr.add(20);
+	arr.add(30);
+	Out arr[0] + arr[1] + arr[2];
+	Out Nl;
+	Out arr.len;
+	Out Nl;
+	arr.remove(2);
+	Out arr.len;
+	Out Nl;
 
-    fixed[3] -> int;
-    fixed[0] = 5;
-    fixed[1] = 6;
-    fixed[2] = 7;
-    Out fixed[0] * fixed[1] + fixed[2];
-    Out Nl;
-
-    n = 5 -> int;
-    Switch n {
-        Case 1? Then Out "one";
-        Case 5?
-            Out "five";
-            Out Nl;
-        Case 0 Then Out "zero";
-        Else Out "other";
-    }
-    p = 1 -> int;
-    While p < 4 {
-        Out p;
-        Out Nl;
-        p = p + 1;
-    }
+	fixed[3] -> int;
+	fixed[0] = 5;
+	fixed[1] = 6;
+	fixed[2] = 7;
+	Out fixed[0] * fixed[1] + fixed[2];  // A code wrote by AI.
+	Out Nl;
+	```
+	Chinese can fly
+	I can fly.
+	Falsecode can also fly.
+	```
+	n = 5 -> int;
+	Switch n {
+		Case 1? Then Out "one";
+		Case 5?
+			Out "five";
+			Out Nl;
+		Case 0 Then Out "zero";
+		Else Out "other";
+	}
+	p = 1 -> int;
+	While p < 4 {
+		Out p;
+		Out Nl;
+		p = p + 1;
+	}
 	p##;
-    Return 0;
+	Return 0;
 }

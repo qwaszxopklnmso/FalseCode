@@ -1,0 +1,25 @@
+Def Split(s -> string, c -> char) -> string<>:
+	res<> -> string;
+	cur = "" -> string;
+	For i = 0 -> int; i < s.len; i = i + 1 {
+		If s[i] == c {
+			res.add(cur);
+			cur = "";
+		} Else {
+			cur = cur + s[i];
+		}
+	}
+	res.add(cur);
+	Return res;
+
+Def Main():
+	parts = Split("hello;world;falsecode", ';') -> string<>;
+	Out parts.len;
+	Out Nl;
+	Out parts[0];
+	Out Nl;
+	Out parts[1];
+	Out Nl;
+	Out parts[2];
+	Out Nl;
+	Return 0;

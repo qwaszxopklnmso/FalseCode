@@ -252,7 +252,13 @@ function parse(sourceText) {
     const stmts = [];
     while (!atEnd()) {
       const l = peek();
-      if (isCommentLine(l)) { pos++; continue; }
+      if (isCommentLine(l)) {
+        pos++;
+        if (l.comment || (l.tokens.length && l.tokens.some((t) => t.type === 'comment'))) {
+          stmts.push({ kind: 'raw', text: l.text, indent: l.indent });
+        }
+        continue;
+      }
       // preprocessor lines (`#ifdef`/`#endif`/...) are usually flush-left even
       // inside indented blocks — don't let them end the block
       const w0 = words(l.tokens);
@@ -269,7 +275,13 @@ function parse(sourceText) {
     const stmts = [];
     while (!atEnd()) {
       const l = peek();
-      if (isCommentLine(l)) { pos++; continue; }
+      if (isCommentLine(l)) {
+        pos++;
+        if (l.comment || (l.tokens.length && l.tokens.some((t) => t.type === 'comment'))) {
+          stmts.push({ kind: 'raw', text: l.text, indent: l.indent });
+        }
+        continue;
+      }
       if (isCloseOnly(l)) { pos++; continue; }
       pos++;
       parseLine(l, stmts);
@@ -280,6 +292,9 @@ function parse(sourceText) {
   // parse a single physical line into AST. `l` was consumed already.
   function parseLine(l, stmts) {
     let toks = words(l.tokens);
+    // keep trailing `//` comments so the generator can echo them into C++
+    const tail = l.tokens.filter((t) => t.type === 'comment')
+      .map((t) => t.value).join(' ');
     if (!toks.length) return;
     // body lines may begin with `Then` (spec examples) — drop it
     if (toks[0].value.toLowerCase() === 'then') {
@@ -288,6 +303,11 @@ function parse(sourceText) {
     }
     const k = toks[0].value.toLowerCase();
     const line = { tokens: toks, indent: l.indent, lineNo: l.lineNo };
+    // attach a trailing comment to a pushed node (inlineCpp keeps its own tail)
+    const push = (node) => {
+      if (tail && !node.tail) node.tail = tail;
+      stmts.push(node);
+    };
     // do-while tail: `} While (cond);` after a `do {` block
     if (toks[0].value === '}' && toks[1] && toks[1].value.toLowerCase() === 'while') {
       stmts.push({ kind: 'dowhile', cond: stripSemi(toks.slice(2)), indent: l.indent });
@@ -295,12 +315,12 @@ function parse(sourceText) {
     }
     // preprocessor lines (#define, #include, ...) pass through verbatim
     if (toks[0].value === '#') {
-      stmts.push({ kind: 'raw', text: l.text });
+      stmts.push({ kind: 'raw', text: l.text, indent: l.indent });
       return;
     }
     // template header lines pass through verbatim (adding `;` breaks them)
     if (toks[0].value === 'template') {
-      stmts.push({ kind: 'raw', text: l.text });
+      stmts.push({ kind: 'raw', text: l.text, indent: l.indent });
       return;
     }
     switch (k) {
@@ -319,7 +339,7 @@ function parse(sourceText) {
       case 'union': {
         // header line passes through verbatim; interior lines are parsed
         // as False Code (C++-style content still passes through as stmts)
-        stmts.push({ kind: 'raw', text: l.text });
+        stmts.push({ kind: 'raw', text: l.text, indent: l.indent });
         let depth = 0;
         for (const t of l.tokens) {
           if (t.value === '{') depth++;
@@ -334,7 +354,7 @@ function parse(sourceText) {
             // closing line (`};` / `}a[105];`) — pass through verbatim
             pos++;
             depth += d;
-            stmts.push({ kind: 'raw', text: n.text });
+            stmts.push({ kind: 'raw', text: n.text, indent: n.indent });
             break;
           }
           if (isCloseOnly(n)) {
@@ -354,7 +374,7 @@ function parse(sourceText) {
           const lastTok = lastOf(words(n.tokens));
           if (lastTok && lastTok.value === '{' &&
               !['if', 'elif', 'else', 'while', 'for', 'switch', 'case', 'default', 'do', 'def'].includes(nk0.toLowerCase())) {
-            stmts.push({ kind: 'raw', text: n.text });
+            stmts.push({ kind: 'raw', text: n.text, indent: n.indent });
             let bd = 1;
             while (!atEnd() && bd > 0) {
               const m = peek();
@@ -371,7 +391,7 @@ function parse(sourceText) {
                 // back to 0 is emitted verbatim.
                 pos++;
                 bd += braceDelta(m.tokens);
-                if (bd <= 0) stmts.push({ kind: 'raw', text: m.text });
+                if (bd <= 0) stmts.push({ kind: 'raw', text: m.text, indent: m.indent });
                 continue;
             }
             const mstart = pos;
@@ -389,32 +409,32 @@ function parse(sourceText) {
         }
         return;
       }
-      case 'return': stmts.push({ kind: 'return', tokens: stripSemi(toks.slice(1)), indent: l.indent }); return;
-      case 'goto': stmts.push({ kind: 'stmt', tokens: [{ type: 'word', value: 'goto' }, ...stripSemi(toks.slice(1))], indent: l.indent }); return;
+      case 'return': push({ kind: 'return', tokens: stripSemi(toks.slice(1)), indent: l.indent }); return;
+      case 'goto': push({ kind: 'stmt', tokens: [{ type: 'word', value: 'goto' }, ...stripSemi(toks.slice(1))], indent: l.indent }); return;
       case 'out':
       case 'output': {
         // `out -> T;` — a variable named `out` (with a `->` annotation) is a
         // declaration, not an output statement
         if (toks[1] && toks[1].value === '->') {
-          stmts.push({ kind: 'stmt', tokens: toks, indent: l.indent });
+          push({ kind: 'stmt', tokens: toks, indent: l.indent });
           return;
         }
-        stmts.push({ kind: 'out', tokens: stripSemi(toks.slice(1)), indent: l.indent }); return;
+        push({ kind: 'out', tokens: stripSemi(toks.slice(1)), indent: l.indent }); return;
       }
       case 'input':
       case 'in': {
         // `in -> T;` — a variable named `in` (with a `->` annotation) is a
         // declaration, not an input statement
         if (toks[1] && toks[1].value === '->') {
-          stmts.push({ kind: 'stmt', tokens: toks, indent: l.indent });
+          push({ kind: 'stmt', tokens: toks, indent: l.indent });
           return;
         }
-        stmts.push({ kind: 'input', tokens: stripSemi(toks.slice(1)), indent: l.indent }); return;
+        push({ kind: 'input', tokens: stripSemi(toks.slice(1)), indent: l.indent }); return;
       }
-      case 'break': stmts.push({ kind: 'break', indent: l.indent }); return;
-      case 'continue': stmts.push({ kind: 'continue', indent: l.indent }); return;
+      case 'break': push({ kind: 'break', indent: l.indent }); return;
+      case 'continue': push({ kind: 'continue', indent: l.indent }); return;
       case 'die':
-      case 'pass': stmts.push({ kind: 'empty', indent: l.indent }); return;
+      case 'pass': push({ kind: 'empty', indent: l.indent }); return;
       default: {
         const last = lastOf(toks);
         // single-line C++ function / lambda / block whose `{...}` body sits
@@ -443,7 +463,7 @@ function parse(sourceText) {
             const inner = splitTopSemi(toks.slice(braceIdx + 1, closeIdx))
               .filter((g) => g.length).map((g) => emitSingle(g));
             inner.inline = true;
-            stmts.push({
+            push({
               kind: 'inlineCpp',
               head: toks.slice(0, braceIdx),
               inner,
@@ -474,12 +494,12 @@ function parse(sourceText) {
                 else if (t.value === '}') depth--;
               }
             }
-            stmts.push({ kind: 'raw', text: raw.join('\n') });
+            stmts.push({ kind: 'raw', text: raw.join('\n'), indent: l.indent });
             return;
           }
           // function/block form: `f() {` / `x = 1; { y = 2; }` + indented body
           const head = stripSemi(toks).filter((t) => t.value !== '{' && t.value !== '}');
-          stmts.push({ kind: 'stmt', tokens: head, body: last.value === '}' ? [] : readBlock(line.indent), indent: l.indent });
+          push({ kind: 'stmt', tokens: head, body: last.value === '}' ? [] : readBlock(line.indent), indent: l.indent });
         } else {
           // multiple statements on one line: `a -> int; b -> int;` or
           // `a = 1; b = 2;` — split at top-level `;`. Embedded `;` inside
@@ -488,7 +508,7 @@ function parse(sourceText) {
           const groups = splitTopSemi(toks);
           for (const g of groups) {
             const w = g.filter((t) => t.value !== ';');
-            if (w.length) stmts.push({ kind: 'stmt', tokens: stripSemi(w), indent: l.indent });
+            if (w.length) push({ kind: 'stmt', tokens: stripSemi(w), indent: l.indent });
           }
         }
       }

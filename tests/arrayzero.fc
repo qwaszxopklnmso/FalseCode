@@ -18,7 +18,7 @@ Def Main() {
 	v.add(5);
 	v.add(6);
 	v##;
-	Out v[0] + v[1];
+	Out v.len;
 	Out Nl;
 
 	##i;

@@ -10,7 +10,7 @@
 - Transpile a file: `node src/main.js <in.fc> [out.cpp]` (default out = `in name + .cpp` next to input).
 - Run the end-to-end suite (transpiles → compiles with `g++` → runs each fixture against its `.out`): `./regress.sh` already runs `node tests/run.js` (or `npm.cmd test`; plain `npm test` fails because `npm.ps1` is blocked by the execution policy on this machine) — do NOT run `tests/run.js` separately.
 - Fixtures live in `tests/*.fc` with expected stdout in `tests/*.out` (`*.in` supplies stdin). Add a fixture for any new syntax WIP.
-- Bug/regression probes MUST be written under `tests/_probe/` (e.g. `bX_*.fc`); after a fix, do NOT delete them — `./regress.sh` re-compiles every `tests/_probe/*.fc` so past bugs stay covered.
+- **Test placement rule:** named/non-trivial fixtures (KMP, standard DFS/BFS, MST, vector tests, hello-world tests — anything with a clear canonical name) go in `tests/*.fc`; unnamed/experimental probes (you don't know what to call them) go under `tests/_probe/`. Bug/regression probes MUST be written under `tests/_probe/` (e.g. `bX_*.fc`); after a fix, do NOT delete them — `./regress.sh` re-compiles every `tests/_probe/*.fc` so past bugs stay covered.
 
 ## Sources of truth
 
