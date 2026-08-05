@@ -21,6 +21,11 @@ const { preprocess } = require('./lexer.js');
 // =====================================================================
 
 function parse(sourceText) {
+  // keyword-first groups on a multi-statement line must be dispatched to the
+  // real parsers (`x = 1; Out x;`), not emitted as raw stmts
+  const LINE_KEYWORDS = ['if', 'elif', 'else', 'switch', 'case', 'default', 'for',
+    'while', 'do', 'def', 'return', 'goto', 'out', 'output', 'input', 'in',
+    'break', 'continue', 'die', 'pass'];
   const lines = preprocess(sourceText);
   let pos = 0;
 
@@ -206,6 +211,49 @@ function parse(sourceText) {
       }
       default: return { kind: 'stmt', tokens: w };
     }
+  }
+
+  // parse ONE nested statement that may itself be a keyword statement
+  // (`If c Then For (i = 0 -> int; i < 100; i ++) Then Out i - 1;`): dispatch
+  // through parseLine so For/While/If bodies are real loop/if nodes, not raw
+  // `stmt` passthrough. Trailing `stmts` pushed by the branch (loop-body
+  // `extra`, if-chain trailing statements) ride along as `node.extra`.
+  function parseSingle(toks, indent) {
+    const k = toks.length ? toks[0].value.toLowerCase() : '';
+    if (k === 'for' || k === 'while' || k === 'if') {
+      const tmp = [];
+      parseLine({ tokens: toks, indent, lineNo: 0 }, tmp);
+      const node = tmp.shift() || null;
+      if (!node) return emitSingle(toks);
+      if (tmp.length) {
+        node.extra = (node.extra || []).concat(tmp);
+        node.extra.inline = true;
+      }
+      return node;
+    }
+    return emitSingle(toks);
+  }
+
+  // A bare (parenthesis-less) `For`/`While` header spans several `;`-separated
+  // groups (`For i = 0 -> int; i < 100; i ++ Then Out i;`); rejoin the groups
+  // that belong to the header (until a group opens with `Then`/`{` — the body).
+  function mergeLoopHead(gg) {
+    if (!gg.length) return gg;
+    const k0 = gg[0][0] ? gg[0][0].value.toLowerCase() : '';
+    if (k0 !== 'for' && k0 !== 'while') return gg;
+    let end = 1;
+    let merged = gg[0];
+    while (end < gg.length) {
+      const v = gg[end][0] ? gg[end][0].value.toLowerCase() : '';
+      // splitTopSemi dropped the top-level `;` separators — put them back so
+      // parseFor's splitSemi can still see the header fields. A `Then`/`{`
+      // group opens the LOOP BODY and is merged too; only groups AFTER it
+      // (extra) stay out.
+      merged = merged.concat({ value: ';', type: 'punct' }, gg[end]);
+      end++;
+      if (v === 'then' || v === '{' || v === '}') break;
+    }
+    return [merged].concat(gg.slice(end));
   }
 
   // strip wrapping parentheses from a bare-expression token list
@@ -519,7 +567,15 @@ function parse(sourceText) {
           const groups = splitTopSemi(toks);
           for (const g of groups) {
             const w = g.filter((t) => t.value !== ';');
-            if (w.length) push({ kind: 'stmt', tokens: stripSemi(w), indent: l.indent });
+            if (!w.length) continue;
+            const first = (w[0].value || '').toLowerCase();
+            if (LINE_KEYWORDS.includes(first)) {
+              // `x = 1; Out x;` — a following keyword statement on the same
+              // line must go through the real dispatcher, not a raw stmt
+              parseLine({ tokens: stripSemi(w), indent: l.indent, lineNo: l.lineNo }, stmts);
+            } else {
+              push({ kind: 'stmt', tokens: stripSemi(w), indent: l.indent });
+            }
           }
         }
       }
@@ -530,9 +586,11 @@ function parse(sourceText) {
   function parseIf(l, stmts) {
     const c = read(l);
     const node = { kind: 'if', cond: c.cond, then: null, elifs: [], els: null };
+    const extraAll = [];
     if (c.inline) {
       node.then = [c.inline];
       node.then.inline = true;
+      if (c.inline.extra && c.inline.extra.length) extraAll.push(...c.inline.extra);
     } else {
       node.then = readBlock(l.indent);
       node.then.inline = false;
@@ -564,7 +622,9 @@ function parse(sourceText) {
       const w0 = words(n.tokens);
       let consumed = false;
       if (w0.length > 1 && w0[0].value === '}') {
-        if (inlineHead) break; // an inline `if (c) stmt;` has no block to close
+        // an inline `if (c) stmt;` has no block to close; a `} Else {` at a
+        // DIFFERENT indent belongs to an outer if — leave it unconsumed
+        if (inlineHead || n.indent !== l.indent) break;
         pos++;
         n = { tokens: w0.slice(1), indent: n.indent, lineNo: n.lineNo };
         consumed = true;
@@ -590,6 +650,7 @@ function parse(sourceText) {
         const e = read(n);
         const then = e.inline ? [e.inline] : readBlock(n.indent);
         then.inline = !!e.inline;
+        if (e.inline && e.inline.extra && e.inline.extra.length) extraAll.push(...e.inline.extra);
         node.elifs.push({ cond: e.cond, then });
         if (!e.inline) inlineHead = false;
         // an elif's own inlineCpp may still carry a tail chain:
@@ -608,14 +669,17 @@ function parse(sourceText) {
           const e = read({ tokens: etoks, indent: n.indent, lineNo: n.lineNo });
           const then = e.inline ? [e.inline] : readBlock(n.indent);
           then.inline = !!e.inline;
+          if (e.inline && e.inline.extra && e.inline.extra.length) extraAll.push(...e.inline.extra);
           node.elifs.push({ cond: e.cond, then });
           if (!e.inline) inlineHead = false;
           continue;
         }
         node.els = parseElseBody(n);
+        if (node.els.extra && node.els.extra.length) extraAll.push(...node.els.extra);
       }
     }
     stmts.push({ ...node, indent: l.indent });
+    for (const e of extraAll) stmts.push({ ...e, indent: l.indent });
   }
 
   function parseElse(l, stmts) {
@@ -664,11 +728,25 @@ function parse(sourceText) {
       return { kind: 'block', stmts: b };
     }
     if (toks[0].value.toLowerCase() === 'then') {
-      const b = [emitSingle(toks.slice(1))];
+      const gg = mergeLoopHead(splitTopSemi(toks.slice(1)).filter((g) => g.length));
+      const b = [parseSingle(gg[0], l.indent)];
       b.inline = true;
-      return { kind: 'block', stmts: b };
+      const blk = { kind: 'block', stmts: b };
+      if (gg.length > 1) blk.extra = gg.slice(1).map((g) => emitSingle(g));
+      return blk;
     }
-    const b2 = [emitSingle(toks)];
+    // `Else Out 9; Out 10;` — the else branch takes ONE statement; trailing
+    // statements belong after the whole if-else chain, kept as `extra` so they
+    // are not absorbed into the else block.
+    const gg = mergeLoopHead(splitTopSemi(toks).filter((g) => g.length));
+    if (gg.length > 1) {
+      const b = [parseSingle(gg[0], l.indent)];
+      b.inline = true;
+      const blk = { kind: 'block', stmts: b };
+      blk.extra = gg.slice(1).map((g) => emitSingle(g));
+      return blk;
+    }
+    const b2 = [parseSingle(toks, l.indent)];
     b2.inline = true;
     return { kind: 'block', stmts: b2 };
   }
@@ -705,7 +783,10 @@ function parse(sourceText) {
     let thenIdx = toks.findIndex((t) => t.value.toLowerCase() === 'then');
     let val, body;
     if (thenIdx >= 0) {
-      val = toks.slice(0, thenIdx).filter((t) => t.value !== '?');
+      val = toks.slice(0, thenIdx);
+      // only a TRAILING `?` is the header terminator; a mid-expression `?` is
+      // a ternary and must survive (`Case x > 1 ? 2 : 3 Then ...`)
+      if (val.length && val[val.length - 1].value === '?') val = val.slice(0, -1);
       body = [emitSingle(toks.slice(thenIdx + 1))];
     } else {
       let colonIdx = -1, depth = 0;
@@ -722,7 +803,12 @@ function parse(sourceText) {
         b.inline = true;
         body = b;
       } else {
-        val = toks.filter((t) => t.value !== '?' && t.value !== ':');
+        // `Case 1:` / `Case 1?` — trailing `:` or `?` is the header
+        // terminator; mid-expression `? :` (ternary) must survive
+        let val2 = toks;
+        const tv = val2.length ? val2[val2.length - 1].value : '';
+        if (tv === '?' || tv === ':') val2 = val2.slice(0, -1);
+        val = val2;
         body = readBlock(l.indent);
       }
     }
@@ -752,8 +838,22 @@ function parse(sourceText) {
       }
       // `Then {` at the end is a block header, not part of the loop header:
       // split at `Then` first (`For i=0; i<3; ++i Then {`), else at `{`
-      // (`For i=0; i<3; ++i {`), else at the end.
-      const tailAt = thenIdx >= 0 ? thenIdx : (braceIdx >= 0 ? braceIdx : toks.length);
+      // (`For i=0; i<3; ++i {`), else after the SAME-LINE BODY statement
+      // (`For i=0; i<10; i++ Out i;` — the body is everything after the
+      // 3rd header field; C++ `for(...) stmt;`), else at the end.
+      let tailAt;
+      if (thenIdx >= 0) tailAt = thenIdx;
+      else if (braceIdx >= 0) tailAt = braceIdx;
+      else {
+        let cnt = 0;
+        tailAt = toks.length;
+        for (let i = 0; i < toks.length; i++) {
+          if (toks[i].value === ';') {
+            cnt++;
+            if (cnt === 3) { tailAt = i + 1; break; }
+          }
+        }
+      }
       const head = toks.slice(0, tailAt);
       parts = splitSemi(head);
       bodyTail = toks.slice(tailAt);
@@ -767,6 +867,7 @@ function parse(sourceText) {
       indent: l.indent,
     };
     stmts.push(node);
+    node.body.extra && node.body.extra.forEach((e) => stmts.push(Object.assign({}, e, { indent: l.indent })));
   }
 
   function parseWhile(l, stmts) {
@@ -786,7 +887,9 @@ function parse(sourceText) {
       cond = toks.slice(0, end);
       bodyTail = stop >= 0 ? toks.slice(stop) : [];
     }
-    stmts.push({ kind: 'while', cond, body: parseLoopBody(l, bodyTail), indent: l.indent });
+    const body = parseLoopBody(l, bodyTail);
+    stmts.push({ kind: 'while', cond, body, indent: l.indent });
+    body.extra && body.extra.forEach((e) => stmts.push(Object.assign({}, e, { indent: l.indent })));
   }
 
   function parseDo(l, stmts) {
@@ -840,6 +943,14 @@ function parse(sourceText) {
           .filter((g) => g.length)
           .map((g) => emitSingle(g));
         b.inline = true;
+        // `For .. { x; } Out 99;` — statements after the `}` run AFTER the
+        // loop (C++ `for(...) {...} x;`); keep them so they are not silently
+        // dropped. The loop's While-tail equivalent is handled in parseDo.
+        const rest = tail.slice(closeIdx + 1);
+        if (rest.length && rest.some((t) => t.value !== ';')) {
+          b.extra = splitTopSemi(rest).filter((g) => g.length).map((g) => emitSingle(g));
+          b.extra.inline = true;
+        }
         return b;
       }
       const b = readBlock(l.indent);
@@ -852,8 +963,15 @@ function parse(sourceText) {
       return b;
     }
     if (tail.length && tail[0].value.toLowerCase() === 'then') {
-      const b = [emitSingle(tail.slice(1))];
+      // Then takes ONE statement; extra statements are loop-body-independent
+      // and run after the loop (kept via `extra`, same as `{ ... } stmt;`)
+      const gg = mergeLoopHead(splitTopSemi(tail.slice(1)).filter((g) => g.length));
+      const b = [parseSingle(gg[0], l.indent)];
       b.inline = true;
+      if (gg.length > 1) {
+        b.extra = gg.slice(1).map((g) => emitSingle(g));
+        b.extra.inline = true;
+      }
       return b;
     }
     if (tail.length) {
@@ -867,8 +985,13 @@ function parse(sourceText) {
       if (kw(n) === 'then') {
         pos++;
         const rest = words(n.tokens).slice(1);
-        const b = [emitSingle(rest)];
+        const gg = mergeLoopHead(splitTopSemi(rest).filter((g) => g.length));
+        const b = [parseSingle(gg[0], l.indent)];
         b.inline = true;
+        if (gg.length > 1) {
+          b.extra = gg.slice(1).map((g) => emitSingle(g));
+          b.extra.inline = true;
+        }
         return b;
       }
     }
@@ -1067,11 +1190,24 @@ function parse(sourceText) {
         }
       }
       if (chainAt > 0) {
-        const b = [emitSingle(rest.slice(0, chainAt))];
+        // `Then` takes a SINGLE statement; extra `;`-separated statements stay
+        // on the chain node as `extra` so they run AFTER the if/else chain
+        // (C++ `if (c) stmt; stmt2;`) instead of being absorbed into a branch.
+        const gg = mergeLoopHead(splitTopSemi(rest.slice(0, chainAt)).filter((g) => g.length));
+        const b = [parseSingle(gg[0], line.indent)];
         b.inline = true;
-        inline = { kind: 'inlineCpp', head: [], inner: b, tail: rest.slice(chainAt) };
+        const extra = gg.slice(1).map((g) => emitSingle(g));
+        inline = { kind: 'inlineCpp', head: [], inner: b, tail: rest.slice(chainAt), extra };
       } else {
-        inline = emitSingle(rest);
+        // `If x == 1 Then Out 1; Out 2;` — same single-statement rule; the
+        // trailing statements become `extra` on the body statement.
+        const gg = mergeLoopHead(splitTopSemi(rest).filter((g) => g.length));
+        if (gg.length > 1) {
+          inline = parseSingle(gg[0], line.indent);
+          inline.extra = gg.slice(1).map((g) => emitSingle(g));
+        } else {
+          inline = parseSingle(rest, line.indent);
+        }
       }
     } else {
       const w2 = w.slice(0, end);

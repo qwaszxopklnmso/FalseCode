@@ -36,11 +36,11 @@ check_compile() {
 }
 
 note "== tests/run.js"
-if node tests/run.js; then :; else echo "FAIL: tests/run.js"; fi
+if node tests/run.js; then :; else FAIL=$((FAIL + 1)); echo "FAIL: tests/run.js"; fi
 
 note ""
 note "== problems_test/check.js"
-if node problems_test/check.js; then :; else echo "FAIL: problems_test/check.js"; fi
+if node problems_test/check.js; then :; else FAIL=$((FAIL + 1)); echo "FAIL: problems_test/check.js"; fi
 
 note ""
 note "== compile all example/*.fc"
@@ -59,4 +59,6 @@ if [ "$FAIL" -eq 0 ]; then
   echo "ALL COMPILED OK ($PASS files)"
 else
   echo "$FAIL compile failure(s), $PASS ok"
+  exit 1
 fi
+exit 0

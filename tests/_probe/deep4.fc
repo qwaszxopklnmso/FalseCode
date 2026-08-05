@@ -1,0 +1,12 @@
+Def Main() {
+	d<<<<int>>>> -> int;
+	d.add({{{{1}}}});
+	Out d[0][0][0][0];
+	Out Nl;
+
+	w<<<<thing>>>> -> int;
+	w.add({{{{9}}}});
+	Out w[0][0][0][0];
+	Out Nl;
+	Return 0;
+}

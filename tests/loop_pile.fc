@@ -1,0 +1,60 @@
+// 屎山1：循环互相嵌套，Break/Continue/Return 混用，无意义但不报错
+Def Main() {
+	total = 0 -> int;
+	For i = 0 -> int; i < 5; ++i {
+		For j = 0 -> int; j < 5; ++j {
+			While total < 3 {
+				total = total + 1;
+				Break;
+			}
+			If j == 2 Then Continue;
+			For k = 0 -> int; k < 3; ++k {
+				If i + j + k > 6 Then Break;
+				total = total + i + j + k;
+			}
+		}
+		If i > 3 Then {
+			For m = 0 -> int; m < 2; ++m {
+				total = total * 1;
+				do {
+					total = total + m;
+				} While total < 0;
+			}
+		}
+	}
+	Out total;
+	Out Nl;
+
+	x = 1 -> int;
+	do {
+		do {
+			While x < 5 {
+				If x % 2 == 0 Then {
+					x = x + 3;
+					Break;
+				}
+				x = x + 1;
+			}
+			x = x + 1;
+		} While x < 8;
+		x = x + 1;
+	} While x < 12;
+	Out x;
+	Out Nl;
+
+	For a = 0 -> int; a < 3; ++a {
+		For b = 0 -> int; b < 3; ++b {
+			For c = 0 -> int; c < 3; ++c {
+				For d = 0 -> int; d < 3; ++d {
+					For e = 0 -> int; e < 3; ++e {
+						If a + b + c + d + e > 8 Then Break;
+					}
+				}
+			}
+		}
+	}
+	Out total;
+	Out Nl;
+
+	Return 0;
+}

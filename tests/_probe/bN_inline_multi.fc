@@ -1,0 +1,50 @@
+Def Main() {
+	// bug8: 同行多语句里关键字语句
+	zz = 1 -> int; Out zz;
+	Out Nl;
+	aa = 2 -> int; Out aa + 1; bb = 9 -> int; Out bb;
+	Out Nl;
+
+	// bug9: Then 后同行多语句
+	x = 3 -> int;
+	If x == 3 Then Out 1; Out 2;
+	Out Nl;
+	If x == 4 Then Out 8; Else Out 9; Out 10;
+	Out Nl;
+
+	// bug10: 循环块后同行语句
+	For i = 0 -> int; i < 2; ++i { Out i; } Out 99;
+	Out Nl;
+	q = 0 -> int;
+	While q < 1 { Out 7; q = q + 1; } Out 8;
+	Out Nl;
+
+	// Then 后只见一条；多余语句是分支之后的独立语句
+	If x == 5 Then Out 200; Else Out 300; Out 400;
+	Out Nl;
+
+	// Case 头部三元：只剥尾部 ?，中间 ? : 保留（case 值须为常量表达式）
+	Switch x {
+		Case 3 ? 3 : 99? Then Out 500;
+		Case 1? Then Out 501;
+		Else Then Out 999;
+	}
+	Out Nl;
+
+	// bug7: map.add
+	mm -> map<int,int>;
+	mm.add(7, 42);
+	Out mm[7], mm[8];
+	Out Nl;
+
+	// bug3: 下标接收者的 .len
+	vv<<>> -> int;
+	vv.add({9, 8});
+	Out vv[0].len, vv.len;
+	Out Nl;
+	s = "hi" -> string;
+	Out s.len;
+	Out Nl;
+
+	Return 0;
+}

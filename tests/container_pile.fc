@@ -1,0 +1,80 @@
+// 屎山3：容器/结构体/数组/字符串大杂烩，无意义但不报错
+struct Box {
+	w = 0 -> int;
+	h = 0 -> int;
+	Def area() -> int {
+		Return w * h;
+	}
+};
+
+Def Main() {
+	v<> -> int;
+	For i = 0 -> int; i < 10; ++i {
+		v.add(i * 3);
+	}
+	Out v.len;
+	Out Nl;
+	v.remove(9);
+	Out v.len;
+	Out Nl;
+	v##;
+	Out v.len;
+	Out Nl;
+	For i = 0 -> int; i < 5; ++i {
+		v.add(i);
+	}
+	Out v[2], v[4];
+	Out Nl;
+
+	vv<<>> -> int;
+	For i = 0 -> int; i < 3; ++i {
+		vv.add({i, i + 1, i + 2});
+	}
+	Out vv[1][2], vv[2][0];
+	Out Nl;
+
+	arr[6] -> int;
+	For i = 0 -> int; i < 6; ++i {
+		arr[i] = i * i;
+	}
+	arr##;
+	Out arr[0], arr[3], arr[5];
+	Out Nl;
+
+	mp -> map<string,int>;
+	mp["apple"] = 3;
+	mp["banana"] = 5;
+	mp["cherry"] = 7;
+	Out mp["banana"] + mp["cherry"];
+	Out Nl;
+	mp["apple"] = mp["apple"] + 1;
+	Out mp["apple"];
+	Out Nl;
+
+	st = "hello" -> string;
+	Out st.len;
+	Out Nl;
+	st = st + " world";
+	Out st;
+	Out Nl;
+
+	b = new Box() -> Box*;
+	b->w = 3;
+	b->h = 4;
+	Out b->area();
+	Out Nl;
+	b->w = 5;
+	Out b->w * b->h;
+	Out Nl;
+
+	cs[] = "falsecode" -> char;
+	Out cs[0], cs[4], cs[8];
+	Out Nl;
+
+	mix<<<>>> -> int;
+	mix.add({{1}, {2, 3}});
+	Out mix[0][0][0], mix[0][1][1];
+	Out Nl;
+
+	Return 0;
+}

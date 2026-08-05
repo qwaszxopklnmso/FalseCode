@@ -1,0 +1,26 @@
+Def Main() {
+	// Then 后单语句可以是嵌套关键字语句（For/While/If）
+	x = 1 -> int;
+	If x == 1 Then For (i = 0 -> int; i < 3; i ++) Then Out i - 1;
+	Out Nl;
+	If x == 2 Then For (j = 0 -> int; j < 3; j ++) Then Out j;
+	Out Nl;
+
+	// Then 后嵌套 While（x=x+1 属循环后语句，故用立即假条件验证）
+	If x == 1 Then While x < 1 Then Out 6;
+	Out Nl;
+
+	// Then 后嵌套 If（emitSingle 路径）
+	If x == 1 Then If x == 1 Then Out 7;
+	Out Nl;
+
+	// Then 后无括号 For 头（splitTopSemi 会拆分头，需按头合并）
+	If 1 Then For i = 0 -> int; i < 3; i ++; Then Out i + 10;
+	Out Nl;
+
+	// 无 Then/{ 的无括号 For 头：第 3 个 `;` 之后即循环体
+	If 1 Then For k = 0 -> int; k < 3; k ++; Out k + 100;
+	Out Nl;
+
+	Return 0;
+}

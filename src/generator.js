@@ -35,14 +35,18 @@ function gen(ast) {
   // Names declared as `set<...>`/`map<...>`: `.add()` -> `insert`,
   // `.remove()` -> `erase`.
   const sets = new Set();
+  // Names declared as `map<...>`/`unordered_map<...>`: `.add(k, v)` ->
+  // `m[k] = v;` (map::insert only takes a pair).
+  const maps = new Set();
 
   const isSetType = (text) => /^(std\s*::\s*)?(set|map|unordered_map)\s*</i.test(text || '');
+  const isMapType = (text) => /^(std\s*::\s*)?(map|unordered_map)\s*</i.test(text || '');
 
   // Scoped registry: `reg` points at the global tables outside functions,
   // and at a per-function snapshot inside a `def` body. This way a local
   // `arr = 0 -> int;` in F() cannot corrupt the global `arr[5] -> int;`
   // entry used by `arr##` in main().
-  let reg = { arrays, strings, sets, queues };
+  let reg = { arrays, strings, sets, maps, queues };
 
   const isStringType = (text) => (text || '').replace(/\s+/g, '').endsWith('string');
 
@@ -93,6 +97,34 @@ function gen(ast) {
         else if (depth === 0 && v === '=') return false;
       }
     }
+    // a top-level `=` *before* the `->` (`x = v -> T;`) makes a BARE custom
+    // type name ambiguous: `x = p -> node;` is member access, not a
+    // declaration. A type that carries a modifier (`node*`, `vec<>`) is
+    // unambiguous, so it still counts.
+    let eqBefore = false;
+    let braceInit = false;
+    {
+      let depth = 0;
+      for (let k = 0; k < i; k++) {
+        const v = tokens[k].value;
+        if (v === '<' || v === '(' || v === '[') depth++;
+        else if (v === '>' || v === ')' || v === ']') depth--;
+        else if (depth === 0 && v === '=') {
+          eqBefore = true;
+          // `e0 = {0,1,4} -> Edge;` — a brace literal right after `=` can only
+          // be an initializer, so the following `-> T` is a declaration, not
+          // a member access (`{...}->field` is meaningless)
+          const nx = tokens[k + 1];
+          if (nx && (nx.value === '{' || (nx.type === 'word' && nx.value === '{'))) braceInit = true;
+          break;
+        }
+      }
+    }
+    // filtered `[]`/`*` were dropped from `rest`; if any were present the
+    // annotation is clearly a type (`-> node*`), not a member `.field`.
+    const bareWord = (eqBefore && rest.length === tokens.slice(i + 1).length);
+    const ambiguous = !braceInit && bareWord && rest.length === 1 && rest[0].type === 'word' &&
+      !TYPE_WORD.test(rest[0].value);
     const joined = rest.map((x) => x.value).join(' ');
     if (TYPE_WORD.test(joined)) return true;
     if (!rest.length || rest[0].type !== 'word') return false;
@@ -120,7 +152,7 @@ function gen(ast) {
     }
     const last = names[names.length - 1];
     // qualified name (`ns::Name`, names crosses a `::`) is always a type
-    return typeNames.has(last) || names.length >= 2 || TYPE_WORD.test(last);
+    return (!ambiguous && typeNames.has(last)) || names.length >= 2 || TYPE_WORD.test(last);
   }
 
   // ---------------------------------------------------------------
@@ -195,20 +227,39 @@ function gen(ast) {
     s = convertBraceKeywords(s);
     s = s.replace(/([A-Za-z_]\w*)\.(add|remove)\s*\(/g, '\u0002$1\u0003$2(');
     s = dropParenArgs(s);
-    s = s.replace(/([A-Za-z_]\w*)\.len\b/g, (m, nm) => {
-      const ai = reg.arrays.get(nm);
-      if (ai && ai.kind === 'fixed') return `(sizeof(${nm}) / sizeof(${nm}[0]))`;
-      return reg.strings.has(nm) ? `${nm}.length()` : `${nm}.size()`;
+    s = s.replace(/([A-Za-z_]\w*(?:\[[^\]]*\])*|\)|\])\.len\b/g, (m, recv) => {
+      const base = (recv.match(/^[A-Za-z_]\w*/) || [''])[0];
+      if (recv === base) {
+        const ai = reg.arrays.get(base);
+        if (ai && ai.kind === 'fixed') return `(sizeof(${base}) / sizeof(${base}[0]))`;
+        return reg.strings.has(base) ? `${base}.length()` : `${base}.size()`;
+      }
+      return `${recv}.size()`;
     });
     // power infix: `a ^^ b`, `(a+1) ^^ 2` -> `pow(...)`
     s = convertPower(s);
     // set-to-zero `##`: `## x` -> `(x = 0)`, `x ##` -> `(x = 0)`
     s = s.replace(/\s*##\s*([A-Za-z_][\w\.\[\]]*)/g, '($1 = 0)');
-    s = s.replace(/([A-Za-z_][\w\.\[\]]*)\s+##/g, '($1 = 0)');
+    s = s.replace(/([A-Za-z_](?:[\w.\[\]]|->)*)\s+##/g, '($1 = 0)');
     for (let i = 0; i < strs.length; i++) {
       s = s.split(`\u0000${i}\u0000`).join(strs[i]);
     }
     return s.trim();
+  }
+
+  // split a string on top-level (paren/bracket/brace-aware) commas
+  function splitTopComma(s) {
+    const parts = [];
+    let depth = 0, cur = '';
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (c === '(' || c === '[' || c === '{') depth++;
+      else if (c === ')' || c === ']' || c === '}') depth--;
+      if (c === ',' && depth === 0) { parts.push(cur); cur = ''; continue; }
+      cur += c;
+    }
+    parts.push(cur);
+    return parts.map((p) => p.trim());
   }
 
   // drop everything from each `\u0002name\u0003op(` marker through its matching `)`
@@ -236,7 +287,12 @@ function gen(ast) {
         const argOut = arg.includes('\u0002') ? dropParenArgs(arg) : arg;
         const isSet = reg.sets.has(nm);
         if (op === 'add') {
-          out += isSet ? `${nm}.insert(${argOut})` : `${nm}.push_back(${argOut})`;
+          if (reg.maps.has(nm)) {
+            const kv = splitTopComma(argOut);
+            out += kv.length === 2 ? `${nm}[${kv[0]}] = ${kv[1]}` : `${nm}.insert(${argOut})`;
+          } else {
+            out += isSet ? `${nm}.insert(${argOut})` : `${nm}.push_back(${argOut})`;
+          }
         } else {
           out += isSet ? `${nm}.erase(${argOut})` : `${nm}.pop_back()`;
         }
@@ -248,72 +304,57 @@ function gen(ast) {
     return out;
   }
 
-  // balanced-paren aware `LHS ^^ RHS` -> `pow(LHS, RHS)`
+  // balanced-paren aware `LHS ^^ RHS` -> `pow(LHS, RHS)`.
+
+  // scan backwards from `j` over one operand: identifier/member chain
+  // (`p->v`, `ns::x`, `arr[0]->v`, `(a+b)->v`) — any mix of identifier
+  // chars, `->`/`::` links and `(...)`/`[...]` groups. Returns the start.
   function scanOperandStart(s, j) {
     let i = j;
-    if (s[i] === ')') {
-      let depth = 0;
-      do {
-        if (s[i] === ')') depth++;
-        else if (s[i] === '(') depth--;
-        i--;
-      } while (i >= 0 && depth > 0);
-      return i + 1;
-    }
-    if (s[i] === ']') {
-      let depth = 0;
-      do {
-        if (s[i] === ']') depth++;
-        else if (s[i] === '[') depth--;
-        i--;
-      } while (i >= 0 && depth > 0);
-      return i + 1;
-    }
-    while (i >= 0 && /[\w\.]/.test(s[i])) i--;
-    // swallow member chains (`p->v`, `ns::x`) into the operand
-    while (i >= 1 && ((s[i] === '>' && s[i - 1] === '-') || (s[i] === ':' && s[i - 1] === ':'))) {
-      i -= 2;
-      while (i >= 0 && /[\w\.]/.test(s[i])) i--;
+    while (i >= 0) {
+      const c = s[i];
+      if (c === ')' || c === ']') {
+        const open = c === ')' ? '(' : '[';
+        let depth = 0;
+        do {
+          if (s[i] === c) depth++;
+          else if (s[i] === open) depth--;
+          i--;
+        } while (i >= 0 && depth > 0);
+        continue;
+      }
+      if (i >= 1 && ((c === '>' && s[i - 1] === '-') || (c === ':' && s[i - 1] === ':'))) {
+        i -= 2;
+        continue;
+      }
+      if (/[\w\.]/.test(c)) { i--; continue; }
+      break;
     }
     return i + 1;
   }
 
+  // scan forwards from `k` over one operand (identifier / member chain /
+  // follow-on call-subscript groups), returning the end index.
   function scanOperandEnd(s, k) {
     let j = k;
-    if (s[j] === '(') {
-      let depth = 0;
-      do {
-        if (s[j] === '(') depth++;
-        else if (s[j] === ')') depth--;
-        j++;
-      } while (j < s.length && depth > 0);
-      return j - 1;
-    }
-    if (s[j] === '[') {
-      let depth = 0;
-      do {
-        if (s[j] === '[') depth++;
-        else if (s[j] === ']') depth--;
-        j++;
-      } while (j < s.length && depth > 0);
-      return j - 1;
-    }
-    while (j < s.length && /[\w\.]/.test(s[j])) j++;
-    // swallow member chains (`p->v`, `ns::x`) into the operand
-    while (j + 1 < s.length && ((s[j] === '-' && s[j + 1] === '>') || (s[j] === ':' && s[j + 1] === ':'))) {
-      j += 2;
-      while (j < s.length && /[\w\.]/.test(s[j])) j++;
-    }
-    // swallow immediately-following call/subscript groups: `f(x)`, `arr[i]`
-    while (j < s.length && (s[j] === '(' || s[j] === '[')) {
-      const open = s[j];
-      const close = open === '(' ? ')' : ']';
-      let depth = 0;
-      do {
-        if (s[j] === open) depth++;
-        else if (s[j] === close) depth--;
-        j++;
-      } while (j < s.length && depth > 0);
+    while (j < s.length) {
+      const c = s[j];
+      if (c === '(' || c === '[') {
+        const close = c === '(' ? ')' : ']';
+        let depth = 0;
+        do {
+          if (s[j] === c) depth++;
+          else if (s[j] === close) depth--;
+          j++;
+        } while (j < s.length && depth > 0);
+        continue;
+      }
+      if (j + 1 < s.length && ((c === '-' && s[j + 1] === '>') || (c === ':' && s[j + 1] === ':'))) {
+        j += 2;
+        continue;
+      }
+      if (/[\w\.]/.test(c)) { j++; continue; }
+      break;
     }
     return j - 1;
   }
@@ -550,14 +591,24 @@ function gen(ast) {
           t.value === '<<' ? ['<', '<'] : t.value === '>>' ? ['>', '>'] : [t.value]);
         const openCount = flat.filter((v) => v === '<').length;
         const closeCount = flat.filter((v) => v === '>').length;
-        if (openCount !== closeCount || !openCount || flat.some((v) => v !== '<' && v !== '>')) {
+        if (openCount !== closeCount || !openCount) {
           throw new Error(`invalid dynamic array '${name}<>': expected balanced '<' '>' pairs (e.g. x<> or vec<<>>)`);
         }
+        // `d<<<<int>>>> -> int` — a base type may live INSIDE the angle pairs;
+        // otherwise the `->` type is the base (`vec<<>> -> int`). The inner
+        // type wins only when it is a real type; a placeholder like
+        // `w<<<<thing>>>> -> int` falls back to the `->` type.
+        const innerToks = tokens.slice(ltIdx, annIdx).filter((t) => !/^[<>]+$/.test(t.value));
+        const innerText = innerToks.map((t) => t.value).join(' ');
+        const innerType = innerToks.length ? innerText : null;
+        const known = (s) => TYPE_WORD.test(s) || typeNames.has(s);
         reg.arrays.set(name, { kind: 'vector', nested: openCount > 1 });
         if (eqIdx >= 0 && eqIdx < annIdx) {
           throw new Error(`dynamic array '${name}<>' cannot take an initializer ('= ${expNoSemi(tokens.slice(eqIdx + 1, annIdx))}')`);
         }
-        return `${'vector<'.repeat(openCount)}${typeCpp(typeText2)}${'>'.repeat(openCount)} ${name};`;
+        const baseType = innerType && innerType !== typeText2 && !known(innerType)
+          ? typeText2 : (innerType || typeText2);
+        return `${'vector<'.repeat(openCount)}${typeCpp(baseType)}${'>'.repeat(openCount)} ${name};`;
       }
 
       // open or sized array: `a[] -> T` / `a[N] -> T` / `a[N][M] -> T`
@@ -609,7 +660,8 @@ function gen(ast) {
           if (vals.length === names.length) {
             names.forEach((n, i) => reg.arrays.delete(n));
             if (isStringType(typeText2)) names.forEach((n) => reg.strings.add(n));
-            if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
+if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
+            if (isMapType(typeText2)) names.forEach((n) => reg.maps.add(n));
             if (typeSfx.dims) names.forEach((n) => reg.arrays.set(n, { kind: 'fixed' }));
             const parts = names.map((n, i) => {
               const v = vals[i].length ? expNoSemi(vals[i]) : '';
@@ -623,8 +675,10 @@ function gen(ast) {
         const val = expNoSemi(valToks);
         reg.arrays.delete(lhs);
         reg.sets.delete(lhs);
+        reg.maps.delete(lhs);
         if (isStringType(typeText2)) reg.strings.add(lhs);
         if (isSetType(typeText2)) reg.sets.add(lhs);
+        if (isMapType(typeText2)) reg.maps.add(lhs);
         if (typeSfx.dims) reg.arrays.set(lhs, { kind: 'fixed' });
         return `${typeCpp(typeText2)} ${lhs}${typeSfx.dims} = ${val};`;
       }
@@ -639,10 +693,12 @@ function gen(ast) {
             reg.strings.delete(n);
             reg.queues.delete(n);
             reg.sets.delete(n);
+            reg.maps.delete(n);
           });
           if (isStringType(typeText2)) names.forEach((n) => reg.strings.add(n));
           if (/^queue\s*</i.test(typeText2)) names.forEach((n) => reg.queues.set(n, typeText2));
           if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
+          if (isMapType(typeText2)) names.forEach((n) => reg.maps.add(n));
           return `${typeCpp(typeText2)} ${names.map((n) => n + typeSfx.dims).join(', ')};`;
         }
         const lhs = declName(lhsToks);
@@ -650,9 +706,11 @@ function gen(ast) {
         reg.strings.delete(lhs);
         reg.queues.delete(lhs);
         reg.sets.delete(lhs);
+        reg.maps.delete(lhs);
         if (isStringType(typeText2)) reg.strings.add(lhs);
         if (/^queue\s*</i.test(typeText2)) reg.queues.set(lhs, typeText2);
         if (isSetType(typeText2)) reg.sets.add(lhs);
+        if (isMapType(typeText2)) reg.maps.add(lhs);
         return `${typeCpp(typeText2)} ${lhs}${typeSfx.dims};`;
       }
     }
@@ -735,6 +793,8 @@ function gen(ast) {
         return [s.stmts];
       case 'stmt':
         return s.body ? [s.body] : [];
+      case 'inlineCpp':
+        return [s.inner];
       default:
         return [];
     }
@@ -777,7 +837,9 @@ function gen(ast) {
     if (post.some((t) => t.value !== ';')) return false;
     if (pre.some((t) => t.value === '**')) return false;
     return pre.every((t) =>
-      /^[A-Za-z_][A-Za-z_0-9]*$/.test(t.value) || t.value === '.');
+      /^[A-Za-z_][A-Za-z_0-9]*$/.test(t.value) ||
+      t.value === '.' || t.value === '->' ||
+      t.value === '[' || t.value === ']');
   }
 
   // C++-style function headers with False Code annotations in the params:
@@ -955,7 +1017,8 @@ function gen(ast) {
           reg = {
             arrays: new Map(reg.arrays),
             strings: new Set(reg.strings),
-            sets: new Set(reg.sets),
+sets: new Set(reg.sets),
+            maps: new Set(reg.maps),
             queues: new Map(reg.queues),
           };
           genBlock(node.body, indent + 1);
@@ -1122,7 +1185,8 @@ function gen(ast) {
         reg = {
           arrays: new Map(reg.arrays),
           strings: new Set(reg.strings),
-          sets: new Set(reg.sets),
+sets: new Set(reg.sets),
+          maps: new Set(reg.maps),
           queues: new Map(reg.queues),
         };
         const params = node.params.map((pp) => {
@@ -1143,6 +1207,7 @@ function gen(ast) {
           }
           if (isStringType(pp.type)) reg.strings.add(pp.name);
           if (isSetType(pp.type)) reg.sets.add(pp.name);
+          if (isMapType(pp.type)) reg.maps.add(pp.name);
           return `${t} ${pp.name}`;
         }).join(', ');
         const ret = isMain

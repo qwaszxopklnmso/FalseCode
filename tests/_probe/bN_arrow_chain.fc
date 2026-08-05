@@ -1,0 +1,38 @@
+struct node {
+	v = 0 -> int;
+	w = 1 -> int;
+};
+Def Main() {
+	// bug1: LHS 成员链带下标/括号组
+	a[2] -> node;
+	a[0].v = 3;
+	p = &a[0] -> node*;
+	Out p->v ^^ 2;
+	Out Nl;
+	Out (a[1].v + 1) ^^ 2;
+	Out Nl;
+
+	// bug2: RHS 组后继续成员链
+	x = 3 -> int;
+	Out x ^^ p->v;
+	Out Nl;
+	Out x ^^ a[0].v;
+	Out Nl;
+
+	// bug5: 成员访问 vs 声明歧义
+	r = p->v -> int;
+	Out r;
+	Out Nl;
+	Out p->v;
+	Out Nl;
+
+	// bug6: p->x ## 清零
+	p->v ##;
+	Out p->v;
+	Out Nl;
+	p->w ##;
+	Out p->w;
+	Out Nl;
+
+	Return 0;
+}

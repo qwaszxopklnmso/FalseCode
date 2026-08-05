@@ -1,0 +1,103 @@
+// 多层嵌套 if 屎山：混合 Then / {} / Elif / Else / 单行 if / 三目
+Def Main() {
+	a = 8 -> int;
+	b = 3 -> int;
+	c = 0 -> int;
+
+	If a > 0 Then {
+		If b > 0 Then {
+			If a > b Then {
+				If a > 10 Then {
+					c = 100;
+				} Else {
+					If b == 3 Then c = 50; Else c = 51;
+				}
+			} Else {
+				If b == 3 Then
+					c = 40;
+				Else c = 41;
+			}
+		} Else {
+			c = 30;
+		}
+	} Else {
+		If b Then {
+			c = 20;
+		} Else {
+			c = 10;
+		}
+	}
+	Out c;
+	Out Nl;
+
+	d = 0 -> int;
+	If a > 5 Then
+		If b > 2 Then
+			If a % 2 == 0 Then d = 1; Else d = 2;
+		Else d = 3;
+	Else d = 4;
+	Out d;
+	Out Nl;
+
+	e = 0 -> int;
+	If a > 0 Then {
+		If a > 7 Then {
+			If b > 2 Then {
+				e = 7;
+			}
+		}
+	}
+	Out e;
+	Out Nl;
+
+	f = 0 -> int;
+	If a == 1 Then {
+		f = 1;
+	} Elif a == 2 Then {
+		f = 2;
+	} Elif a == 8 Then {
+		If b == 3 Then {
+			If a > 5 Then {
+				If a > 6 Then {
+					If a > 7 Then {
+						f = 8;
+					}
+				}
+			}
+		}
+	} Elif a == 16 Then {
+		f = 16;
+	} Else {
+		f = -1;
+	}
+	Out f;
+	Out Nl;
+
+	g = 0 -> int;
+	If a > 0 Then g = 1;
+	If a > 100 Then g = 2; Else g = 3;
+	If (a > 5) Then {
+		If (b > 0) Then g = g + 10;
+	}
+	Out g;
+	Out Nl;
+
+	If a > 0 Then {
+		If b > 0 Then {
+			If c > 0 Then {
+				If d > 0 Then {
+					If e > 0 Then {
+						If f > 0 Then {
+							If g > 0 Then {
+								Out "deep7";
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	Out Nl;
+
+	Return 0;
+}

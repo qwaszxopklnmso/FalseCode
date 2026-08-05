@@ -1,0 +1,27 @@
+Def F1() -> int {
+	If 1 Then { Return 42; }
+	Return 0;
+}
+Def F2() {
+	If 0 Then { Return 1; }
+}
+Def Main() {
+	// bug4: def 里同行 { Return } 推断返回类型
+	Out F1();
+	Out Nl;
+	F2();
+	Out 0;
+	Out Nl;
+
+	// bug7: map.add(k, v) -> m[k] = v
+	mp -> map<string,int>;
+	mp.add("k1", 7);
+	mp.add("k2", 9);
+	Out mp["k2"], mp["k1"];
+	Out Nl;
+	mp.remove("k1");
+	Out mp["zzz"];
+	Out Nl;
+
+	Return 0;
+}

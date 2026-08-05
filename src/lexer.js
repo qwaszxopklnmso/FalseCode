@@ -158,7 +158,7 @@ function isDigit(c) {
 
 /**
  * Compute indentation level from leading whitespace.
- * A tab counts as 1 level; a run of spaces counts as ceil(len/4).
+ * A tab counts as 1 level; a run of spaces counts as ceil(len/2).
  */
 function indentLevelOf(line) {
   let tabs = 0;

@@ -74,7 +74,12 @@ function main(argv) {
     process.exit(1);
   }
   const outPath = rest[1] || srcPath.replace(/\.[^.]+$/, '') + '.cpp';
-  fs.writeFileSync(outPath, output, 'utf8');
+  try {
+    fs.writeFileSync(outPath, output, 'utf8');
+  } catch (e) {
+    console.error(`[error] cannot write output: ${outPath} (${e.code || e.message})`);
+    process.exit(1);
+  }
   console.log(`transpiled ${srcPath} -> ${outPath}`);
   if (flags.compile) {
     const exePath = outPath.replace(/\.[^.]+$/, '') + '.exe';
