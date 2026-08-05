@@ -29,7 +29,7 @@
 - **Inline bodies:** `def f(i->int)->int { return i * 2; }` and `For/While ... { stmt; stmt; }` on one line work; a trailing `{` alone (or `{ }`) still means the body follows on indented lines. C++ nested functions inside `main` are illegal C++ regardless of the transpiler.
 - **Operator quirks (not C++)**: `^^=` is power, `##` sets to zero, `^=` is XOR. Note `^`/`^=` themselves are plain C++ bitwise XOR and pass through verbatim (`a^=b` stays `a ^= b;`, `b = a ^ b` stays as-is) — only `^^`/`^^=` are False Code's power operator.
 - **Block syntax:** `If/Elif/Case` use `?` + Tab or `Then` (Python-style), while `Else` uses `{}`; `while/for/switch` use `{}` or `Then` + single statement. `Break`/`Continue` are capitalised in examples.
-- Comments: triple-backtick `python-style multiline` and `//` for single line.
+- Comments: triple-backtick `python-style multiline`, `//` for single line, and C-style `/* ... */` block comments (same-line or spanning multiple lines; strings containing `/*` are left untouched).
 - **Spec is intentionally open-ended:** it ends with "再加别的，自己想" (add the rest yourself). Reasonable extensions are expected, but keep existing rules intact.
 - Input/output: `Out a,b,c...` (comma-separated, `Nl` = newline), `In to a,b,c...`, `getchar` follows C++ semantics. `in -> T;` / `out -> T;` are declarations of variables named `in`/`out`, not input/output statements.
 - `Def Fn() -> ReturnType:` ... `Return ...;` for functions.

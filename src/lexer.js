@@ -87,6 +87,16 @@ function tokenizeLine(line) {
       tokens.push({ type: TOKEN_TYPES.COMMENT, value: line.slice(i) });
       break;
     }
+    // `/* ... */` C-style block comment on one line — kept as a comment
+    // token; an unclosed `/*` runs to end of line (C++ keeps swallowing it,
+    // exactly like hand-written C++).
+    if (c === '/' && line[i + 1] === '*') {
+      const end = line.indexOf('*/', i + 2);
+      const stop = end >= 0 ? end + 2 : n;
+      tokens.push({ type: TOKEN_TYPES.COMMENT, value: line.slice(i, stop) });
+      i = stop;
+      continue;
+    }
     // strip `\`-escaped `\x` forms handled below via operators.
     if (c === '"' || c === "'") {
       let j = i + 1;
@@ -187,8 +197,28 @@ function preprocess(src) {
   const out = [];
   let inBacktick = false;
   let block = null; // {head, indent, content: []} for ``` comment blocks
+  let inCComm = false;
+  let cblock = null; // {indent, content: []} for `/*...*/` comment blocks
   rawLines.forEach((raw, idx) => {
     const lineNo = idx + 1;
+    // in a `/* ... */` block comment — collect until a string-outside `*/`
+    if (inCComm) {
+      const ci = findC(raw, 0, true);
+      if (ci < 0) { cblock.content.push(raw); return; }
+      cblock.content.push(raw.slice(0, ci));
+      inCComm = false;
+      const content = cblock.content.join('\n');
+      out.push({
+        text: `/*${content ? '\n' + content + '\n' : ''}*/`,
+        indent: cblock.indent,
+        lineNo,
+        comment: true,
+        tokens: [],
+      });
+      cblock = null;
+      raw = raw.slice(ci + 2);   // code after `*/` keeps being processed
+      if (!raw.trim()) return;
+    }
     const toggles = countTripleToggles(raw);
     if (inBacktick) {
       // collecting a ``` comment block
@@ -262,11 +292,51 @@ function preprocess(src) {
       // code part still needs stripping for the code tokens below.
       raw = raw;
     }
+    // a string-outside `/*` with no same-line `*/` opens a multi-line
+    // block comment; keep the code before it, collect the rest later
+    const cOpen = findC(raw, 0, false);
+    if (cOpen >= 0 && findC(raw, cOpen + 2, true) < 0) {
+      inCComm = true;
+      cblock = {
+        indent: indentLevelOf(raw),
+        content: [raw.slice(cOpen + 2)],
+      };
+      raw = raw.slice(0, cOpen);
+    }
     const indent = indentLevelOf(raw);
     const tokens = tokenizeLine(raw.trimStart());
     out.push({ text: raw, indent, lineNo, tokens });
   });
   return out;
+}
+
+/** Find position of first string-outside C block-comment marker at or
+ *  after `from`: the open marker (slash-star) when close=false, the close
+ *  marker (star-slash) when close=true. Returns -1 when absent. */
+function findC(line, from, close) {
+  const n = line.length;
+  let i = from || 0;
+  while (i < n) {
+    const c = line[i];
+    if (c === '"' || c === "'") {
+      let j = i + 1;
+      while (j < n && line[j] !== c) {
+        if (line[j] === '\\') j++;
+        j++;
+      }
+      i = Math.max(j + 1, i + 1);
+      continue;
+    }
+    if (close) {
+      if (c === '*' && line.charAt(i + 1) === '/' &&
+          line.startsWith('*/', i)) return i;
+    } else {
+      if (c === '/' && line.charAt(i + 1) === '*' &&
+          line.startsWith('/*', i)) return i;
+    }
+    i++;
+  }
+  return -1;
 }
 
 /** Count occurrences of the triple-backtick fence not inside strings
