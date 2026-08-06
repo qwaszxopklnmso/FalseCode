@@ -21,6 +21,8 @@
 
 验证安装:命令行执行 `node --version` 和 `g++ --version`,均输出版本号即可。
 
+> **关于 `bits/stdc++.h`**:生成的 C++ 默认带 `#include <bits/stdc++.h>`(GNU 特有头,Linux 的 g++ / MSYS2 / MinGW-w64 均自带)。个别编译器(如 MSVC、部分 macOS 默认 clang)没有这个头——此时在 `*.fc` 源码顶部自己写需要的 `#include <iostream>` / `#include <vector>` 等即可,这些行会原样输出到生成的 C++ 里,与默认头共存,不影响编译。下载不到合适工具链时也可以改用任意装有标准库头的编译器,把缺的头手动补进源码。
+
 ```bash
 # 转译单个文件:  node src/main.js <in.fc> [out.cpp]
 node src/main.js hello.fc          # 生成 hello.cpp(默认输出到输入文件旁)

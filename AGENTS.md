@@ -36,7 +36,7 @@
 
 ## Transpiler behaviour (decisions, already baked into src/)
 
-- Generated C++ is self-contained: a hard-coded `#include <bits/stdc++.h>` + `using namespace std;` header; source never contains `Main`-level `include`.
+- Generated C++ is self-contained: a hard-coded `#include <bits/stdc++.h>` + `using namespace std;` header; source never contains `Main`-level `include`. On compilers lacking `<bits/stdc++.h>` (MSVC, some macOS clang), the user may add their own `#include <...>` lines at the top of the `.fc` file — they pass through verbatim and coexist with the default header.
 - `Def Main()` → `int main()`, params `argc -> int`→`int argc`, `argv -> string[]`→`char** argv`; an implicit `return 0;` is added if main has no `Return`.
 - `For`/`While` headers may use parentheses OR omit them (`For (i=0 -> int; i<4; ++i)` and `For i=0 -> int; i<4; ++i {` are equivalent; note the spec sample splits fields with `;`). Parentheses are treated as the header form ONLY when the header's first token is `(`; otherwise a leading `(...)` is a function call in the condition (e.g. `While f(n) < 10 {`). A `->` in the head is a type annotation only if followed by a type keyword — `For i = p->a; ...` is member access.
 - `Then` may start a body line (`Then Break;`) or follow the condition inline (`Elif x==3 Then Continue;`). `Break`/`Continue`/`Return` are case-insensitive. `Goto label;` → `goto label;` (labels are C++ labels, must be indented inside their block). `Die`/`Pass` emit an empty statement.
