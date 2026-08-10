@@ -1,0 +1,7 @@
+Def Main() {
+	x = 3 -> int;
+	If x == 3 Then Out 1;
+	Out 2;
+	Else Out 3;
+	Return 0;
+}

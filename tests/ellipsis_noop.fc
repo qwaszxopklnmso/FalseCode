@@ -1,0 +1,25 @@
+Def Main() {
+	...
+	...;
+	pass
+	pass;
+	...;...
+	...;;;
+	;...;...
+	... ; ...; ...;;;
+	pass;;; ...;;
+	Out 1, Nl;
+	If true + 1 ?
+		pass
+		...
+		...;;
+	Out 2, Nl;
+	a = 3 -> int; b = 4 -> int;
+	If a Then Out 3;
+	...; pass
+	Elif b Then Out 4;
+	Else Out 5;
+	Out Nl;
+	Out 6, Nl;
+	Return 0;
+}

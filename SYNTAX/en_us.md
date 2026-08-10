@@ -174,7 +174,7 @@ Also: pointer / multi-word types (`char*`, `int*`, `long long`, `unsigned long l
 
 | Form | Notes |
 |------|-------|
-| `Die;` / `Pass;` | empty statement (not program exit) |
+| `Die;` / `Pass;` / `...` | empty statement (not program exit); the `;` after `...` is optional when the line ends there, and no-op lines do not break an `If/Elif/Else` chain |
 | `#define X 1` / `#ifdef` | preprocessor lines pass through verbatim (even flush-left) |
 | `std::sort`, `next_permutation` | any C++ identifier passes through; STL is fully usable |
 | `a ? b : c`, `p->x`, lambdas | C++ expressions pass through (`->` is a type annotation only when followed by a type keyword) |

@@ -1,0 +1,7 @@
+Def Main() {
+	a = 1 -> int; b = 2 -> int;
+	If a Then Out 1;
+	Out 2;
+	Elif b Then Out 3;
+	Return 0;
+}

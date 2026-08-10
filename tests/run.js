@@ -19,6 +19,22 @@ function runCase(basename) {
   const stdinFile = path.join(TESTS_DIR, basename + '.in');
   const expectedFile = path.join(TESTS_DIR, basename + '.out');
 
+  // `err_*.fc` fixtures are expected to FAIL transpilation (a transpiler
+  // diagnostic). Their point is that the error is raised, not that the
+  // generated C++ compiles.
+  if (basename.startsWith('err_')) {
+    const source = fs.readFileSync(fc, 'utf8');
+    try {
+      transpile(source);
+      fail++;
+      console.log(`FAIL ${basename}: expected a transpile error, but it transpiled OK`);
+    } catch (e) {
+      pass++;
+      console.log(`PASS ${basename}: ${String(e.message).split('\n')[0]}`);
+    }
+    return;
+  }
+
   const source = fs.readFileSync(fc, 'utf8');
   const outCpp = transpile(source);
   fs.writeFileSync(cpp, outCpp);

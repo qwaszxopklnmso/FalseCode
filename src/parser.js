@@ -25,9 +25,10 @@ function parse(sourceText) {
   // real parsers (`x = 1; Out x;`), not emitted as raw stmts
   const LINE_KEYWORDS = ['if', 'elif', 'else', 'switch', 'case', 'default', 'for',
     'while', 'do', 'def', 'return', 'goto', 'out', 'output', 'input', 'in',
-    'break', 'continue', 'die', 'pass'];
+    'break', 'continue', 'die', 'pass', '...'];
   const lines = preprocess(sourceText);
   let pos = 0;
+  let inSwitch = 0;
 
   const peek = () => lines[pos];
   const atEnd = () => pos >= lines.length;
@@ -140,6 +141,12 @@ function parse(sourceText) {
     // `?` is a ternary and must be kept
     const w = w0.length && lastOf(w0).value === '?' ? w0.slice(0, -1) : w0;
     if (!w.length) return { kind: 'empty' };
+    // `...` is a pseudo-code no-op (like `Die`/`Pass`); a trailing `;` is
+    // optional when the line ends there
+    if (w[0].value === '...' &&
+        w.every((t) => t.value === '...' || t.value === ';')) {
+      return { kind: 'empty' };
+    }
     const k = w[0].value.toLowerCase();
     const rest = w.slice(1);
     if (k === 'then') return emitSingle(rest);
@@ -218,11 +225,11 @@ function parse(sourceText) {
   // through parseLine so For/While/If bodies are real loop/if nodes, not raw
   // `stmt` passthrough. Trailing `stmts` pushed by the branch (loop-body
   // `extra`, if-chain trailing statements) ride along as `node.extra`.
-  function parseSingle(toks, indent) {
+  function parseSingle(toks, indent, lineNo = 0) {
     const k = toks.length ? toks[0].value.toLowerCase() : '';
     if (k === 'for' || k === 'while' || k === 'if') {
       const tmp = [];
-      parseLine({ tokens: toks, indent, lineNo: 0 }, tmp);
+      parseLine({ tokens: toks, indent, lineNo }, tmp);
       const node = tmp.shift() || null;
       if (!node) return emitSingle(toks);
       if (tmp.length) {
@@ -486,6 +493,16 @@ function parse(sourceText) {
       case 'continue': push({ kind: 'continue', indent: l.indent }); return;
       case 'die':
       case 'pass': push({ kind: 'empty', indent: l.indent }); return;
+      case '...': {
+        // `...` is a pseudo-code no-op (like `Die`/`Pass`); a `;` behind it
+        // is optional. Mixed content (`... x`) stays raw C++ passthrough.
+        if (toks.every((t) => t.value === '...' || t.value === ';')) {
+          push({ kind: 'empty', indent: l.indent });
+        } else {
+          push({ kind: 'stmt', tokens: toks, indent: l.indent });
+        }
+        return;
+      }
       default: {
         const last = lastOf(toks);
         // single-line C++ function / lambda / block whose `{...}` body sits
@@ -584,6 +601,13 @@ function parse(sourceText) {
 
   // ---------------------------- If / Elif / Else ---------------------
   function parseIf(l, stmts) {
+    // a stray `Elif`/`Else` reaches here only when its chain was broken by
+    // an intervening statement — it would silently become an independent
+    // `if`, so report it instead.
+    const k0l = (words(l.tokens)[0] || {}).value || '';
+    if (k0l.toLowerCase() === 'elif') {
+      err(`'Elif' without a matching 'If' (the if-chain ended before this line)`, l);
+    }
     const c = read(l);
     const node = { kind: 'if', cond: c.cond, then: null, elifs: [], els: null };
     const extraAll = [];
@@ -635,6 +659,18 @@ function parse(sourceText) {
       }
       const nk = kw(n);
       if (nk !== 'elif' && nk !== 'else') {
+        // a pure no-op line (`Pass;`, `Die;`, `...;`) between branches does
+        // NOT break the chain — skip it and keep looking for elif/else
+        const gn = words(n.tokens);
+        if (node.els === null && gn.length &&
+            gn.every((t) => {
+              const lv = t.value.toLowerCase();
+              return t.value === ';' || t.value === '...' ||
+                lv === 'pass' || lv === 'die';
+            })) {
+          pos++;
+          continue;
+        }
         // nothing of this if-chain followed; give the skipped lines back
         // (a bare `}` may be the enclosing block's closer, not ours)
         if (node.els === null && node.elifs.length === 0) pos = chainStart;
@@ -683,6 +719,15 @@ function parse(sourceText) {
   }
 
   function parseElse(l, stmts) {
+    // an `Else` may only continue an *open* if-chain: the last emitted node
+    // must be an `if` that hasn't taken an `else` yet. Anything in between
+    // (a plain statement, a closed chain, another else) makes this a dangling
+    // `else` — emit a helpful error instead of broken C++.
+    const last = stmts[stmts.length - 1];
+    if (!inSwitch &&
+        !(last && last.kind === 'if' && last.cond !== null && last.els === null)) {
+      err(`'Else' without a matching 'If'/'Elif' (the if-chain ended before this line)`, l);
+    }
     stmts.push({ kind: 'if', cond: null, then: [], elifs: [], els: parseElseBody(l), indent: l.indent });
   }
 
@@ -729,7 +774,7 @@ function parse(sourceText) {
     }
     if (toks[0].value.toLowerCase() === 'then') {
       const gg = mergeLoopHead(splitTopSemi(toks.slice(1)).filter((g) => g.length));
-      const b = [parseSingle(gg[0], l.indent)];
+      const b = [parseSingle(gg[0], l.indent, l.lineNo)];
       b.inline = true;
       const blk = { kind: 'block', stmts: b };
       if (gg.length > 1) blk.extra = gg.slice(1).map((g) => emitSingle(g));
@@ -740,19 +785,20 @@ function parse(sourceText) {
     // are not absorbed into the else block.
     const gg = mergeLoopHead(splitTopSemi(toks).filter((g) => g.length));
     if (gg.length > 1) {
-      const b = [parseSingle(gg[0], l.indent)];
+      const b = [parseSingle(gg[0], l.indent, l.lineNo)];
       b.inline = true;
       const blk = { kind: 'block', stmts: b };
       blk.extra = gg.slice(1).map((g) => emitSingle(g));
       return blk;
     }
-    const b2 = [parseSingle(toks, l.indent)];
+    const b2 = [parseSingle(toks, l.indent, l.lineNo)];
     b2.inline = true;
     return { kind: 'block', stmts: b2 };
   }
 
   // ---------------------------- Switch / Case ------------------------
   function parseSwitch(l, stmts) {
+    inSwitch++;
     const toks = words(l.tokens).slice(1).filter((t) => t.value !== '{');
     let body = readBlock(l.indent);
     // case labels may sit at the same indent as the switch header (C++ style)
@@ -776,6 +822,7 @@ function parse(sourceText) {
       return n;
     });
     stmts.push({ kind: 'switch', cond: toks, body, indent: l.indent });
+    inSwitch--;
   }
 
   function parseCase(l, stmts) {
@@ -966,7 +1013,7 @@ function parse(sourceText) {
       // Then takes ONE statement; extra statements are loop-body-independent
       // and run after the loop (kept via `extra`, same as `{ ... } stmt;`)
       const gg = mergeLoopHead(splitTopSemi(tail.slice(1)).filter((g) => g.length));
-      const b = [parseSingle(gg[0], l.indent)];
+      const b = [parseSingle(gg[0], l.indent, l.lineNo)];
       b.inline = true;
       if (gg.length > 1) {
         b.extra = gg.slice(1).map((g) => emitSingle(g));
@@ -986,7 +1033,7 @@ function parse(sourceText) {
         pos++;
         const rest = words(n.tokens).slice(1);
         const gg = mergeLoopHead(splitTopSemi(rest).filter((g) => g.length));
-        const b = [parseSingle(gg[0], l.indent)];
+        const b = [parseSingle(gg[0], l.indent, l.lineNo)];
         b.inline = true;
         if (gg.length > 1) {
           b.extra = gg.slice(1).map((g) => emitSingle(g));
@@ -1194,7 +1241,7 @@ function parse(sourceText) {
         // on the chain node as `extra` so they run AFTER the if/else chain
         // (C++ `if (c) stmt; stmt2;`) instead of being absorbed into a branch.
         const gg = mergeLoopHead(splitTopSemi(rest.slice(0, chainAt)).filter((g) => g.length));
-        const b = [parseSingle(gg[0], line.indent)];
+        const b = [parseSingle(gg[0], line.indent, line.lineNo)];
         b.inline = true;
         const extra = gg.slice(1).map((g) => emitSingle(g));
         inline = { kind: 'inlineCpp', head: [], inner: b, tail: rest.slice(chainAt), extra };
@@ -1203,10 +1250,10 @@ function parse(sourceText) {
         // trailing statements become `extra` on the body statement.
         const gg = mergeLoopHead(splitTopSemi(rest).filter((g) => g.length));
         if (gg.length > 1) {
-          inline = parseSingle(gg[0], line.indent);
+          inline = parseSingle(gg[0], line.indent, line.lineNo);
           inline.extra = gg.slice(1).map((g) => emitSingle(g));
         } else {
-          inline = parseSingle(rest, line.indent);
+          inline = parseSingle(rest, line.indent, line.lineNo);
         }
       }
     } else {
