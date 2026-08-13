@@ -1,0 +1,16 @@
+Def func(x -> int) -> int:
+	if x<=1 Then Return 1;
+	Else Return func(x-1)*x;
+Def main:
+	for i = 0->int;i < 100;i ++; Then Out i; // 1
+```
+If true?
+	Out 1;
+	Die;
+If false Then Die;
+
+```
+	Out Nl;
+	Out func(6)^^2,Nl,"Hello World\n";
+	Return 0;
+

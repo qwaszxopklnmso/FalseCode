@@ -321,7 +321,11 @@ function gen(ast) {
           else if (s[i] === open) depth--;
           i--;
         } while (i >= 0 && depth > 0);
-        continue;
+        // the group may belong to a function call: `f (x)` — skip
+        // whitespace and keep scanning the function name to the left
+        while (i >= 0 && s[i] === ' ') i--;
+        if (i >= 0 && /[\w\.]/.test(s[i])) continue;
+        break;
       }
       if (i >= 1 && ((c === '>' && s[i - 1] === '-') || (c === ':' && s[i - 1] === ':'))) {
         i -= 2;
@@ -354,6 +358,9 @@ function gen(ast) {
         continue;
       }
       if (/[\w\.]/.test(c)) { j++; continue; }
+      // `f (x)`: whitespace between a name and its call parens is part of
+      // the call — skip it so the group scan picks the args up
+      if (c === ' ') { j++; continue; }
       break;
     }
     return j - 1;
