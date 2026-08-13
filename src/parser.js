@@ -366,6 +366,12 @@ function parse(sourceText) {
       if (tail && !node.tail) node.tail = tail;
       stmts.push(node);
     };
+    // keyword statements push their node(s) directly (not via `push`), so
+    // stamp the trailing `//` comment onto the last node they emitted
+    const stamp = () => {
+      const last = stmts[stmts.length - 1];
+      if (tail && last && !last.tail) last.tail = tail;
+    };
     // do-while tail: `} While (cond);` after a `do {` block
     if (toks[0].value === '}' && toks[1] && toks[1].value.toLowerCase() === 'while') {
       stmts.push({ kind: 'dowhile', cond: stripSemi(toks.slice(2)), indent: l.indent });
@@ -383,15 +389,15 @@ function parse(sourceText) {
     }
     switch (k) {
       case 'if':
-      case 'elif': parseIf(line, stmts); return;
-      case 'else': parseElse(line, stmts); return;
-      case 'switch': parseSwitch(line, stmts); return;
+      case 'elif': parseIf(line, stmts); stamp(); return;
+      case 'else': parseElse(line, stmts); stamp(); return;
+      case 'switch': parseSwitch(line, stmts); stamp(); return;
       case 'case':
-      case 'default': parseCase(line, stmts); return;
-      case 'for': parseFor(line, stmts); return;
-      case 'while': parseWhile(line, stmts); return;
-      case 'do': parseDo(line, stmts); return;
-      case 'def': parseDef(line, stmts); return;
+      case 'default': parseCase(line, stmts); stamp(); return;
+      case 'for': parseFor(line, stmts); stamp(); return;
+      case 'while': parseWhile(line, stmts); stamp(); return;
+      case 'do': parseDo(line, stmts); stamp(); return;
+      case 'def': parseDef(line, stmts); stamp(); return;
       case 'struct':
       case 'class':
       case 'union': {

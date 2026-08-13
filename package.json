@@ -1,6 +1,6 @@
 {
   "name": "@qwaszxopklnm/falsecode",
-  "version": "0.3.13",
+  "version": "0.3.14",
   "description": "False Code transpiler: pseudo-code -> C++",
   "main": "src/main.js",
   "bin": {

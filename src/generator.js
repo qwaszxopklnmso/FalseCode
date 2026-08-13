@@ -973,6 +973,7 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
   // Whole if / elif / else chain where every branch is a single inline stmt -> one line.
   function emitBlockMerged(node, indent) {
     const p = pad(node.indent ?? indent);
+    const tl = node.tail ? ` ${node.tail}` : '';
     const parts = [];
     let ok = true;
     const push = (head, stmts) => {
@@ -991,7 +992,7 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
     if (node.els && ok) push('else', node.els.stmts);
     if (!ok) {
       // not fully inline -> fall through to block emission
-      emit(`${p}if (${expNoSemi(node.cond)}) {`);
+      emit(`${p}if (${expNoSemi(node.cond)}) {${tl}`);
       genBlock(node.then, indent + 1);
       for (const el of node.elifs) {
         emit(`${p}} else if (${expNoSemi(el.cond)}) {`);
@@ -1004,7 +1005,7 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
       emit(`${p}}`);
       return;
     }
-    emit(`${p}${parts.join(' ')}`);
+    emit(`${p}${parts.join(' ')}${tl}`);
   }
 
   function genStmt(node, indent) {
@@ -1099,16 +1100,16 @@ sets: new Set(reg.sets),
         return;
       }
       case 'switch': {
-        emit(`${p}switch (${expNoSemi(node.cond)}) {`);
+        emit(`${p}switch (${expNoSemi(node.cond)}) {${tl}`);
         for (const c of node.body) {
           if (c.kind !== 'case') { genStmt(c, indent + 1); continue; }
           if (c.val === null || c.val.length === 0) {
-            emit(`${p}\tdefault: {`);
+            emit(`${p}\tdefault: {${c.tail ? " " + c.tail : ""}`);
             genBlock(c.body, indent + 2);
             emit(`${p}\t}`);
             continue;
           }
-          emit(`${p}\tcase ${expNoSemi(c.val)}: {`);
+          emit(`${p}\tcase ${expNoSemi(c.val)}: {${c.tail ? " " + c.tail : ""}`);
           genBlock(c.body, indent + 2);
           emit(`${p}\t\tbreak;`);
           emit(`${p}\t}`);
@@ -1123,11 +1124,11 @@ sets: new Set(reg.sets),
         if (node.body.inline && node.body.length === 1) {
           const s = inlineStmt(node.body[0]);
           if (s !== null) {
-            emit(`${p}for (${init}; ${cond}; ${step}) ${s};`);
+            emit(`${p}for (${init}; ${cond}; ${step}) ${s};${tl}`);
             return;
           }
         }
-        emit(`${p}for (${init}; ${cond}; ${step}) {`);
+        emit(`${p}for (${init}; ${cond}; ${step}) {${tl}`);
         genBlock(node.body, indent + 1);
         emit(`${p}}`);
         return;
@@ -1137,18 +1138,18 @@ sets: new Set(reg.sets),
         if (node.body.inline && node.body.length === 1) {
           const s = inlineStmt(node.body[0]);
           if (s !== null) {
-            emit(`${p}while (${cond}) ${s};`);
+            emit(`${p}while (${cond}) ${s};${tl}`);
             return;
           }
         }
-        emit(`${p}while (${cond}) {`);
+        emit(`${p}while (${cond}) {${tl}`);
         genBlock(node.body, indent + 1);
         emit(`${p}}`);
         return;
       }
       case 'dowhile': {
         const cond = node.cond.length ? expNoSemi(node.cond) : 'true';
-        emit(`${p}while (${cond});`);
+        emit(`${p}while (${cond});${tl}`);
         return;
       }
       case 'do': {
@@ -1156,14 +1157,14 @@ sets: new Set(reg.sets),
         if (node.body.inline && node.body.length === 1 && cond !== null) {
           const s = inlineStmt(node.body[0]);
           if (s !== null) {
-            emit(`${p}do ${s}; while (${cond});`);
+            emit(`${p}do ${s}; while (${cond});${tl}`);
             return;
           }
         }
-        emit(`${p}do {`);
+        emit(`${p}do {${tl}`);
         genBlock(node.body, indent + 1);
         emit(`${p}}`);
-        if (cond !== null) emit(`${p}while (${cond});`);
+        if (cond !== null) emit(`${p}while (${cond});${tl}`);
         return;
       }
       case 'def': {
@@ -1182,7 +1183,7 @@ sets: new Set(reg.sets),
           const ret = isMain ? 'int'
             : (node.ret.length ? retTypeCpp(node.ret)
               : (defRet.get(node.name) || 'void'));
-          emit(`${p}${ret} ${node.name}(${params});`);
+          emit(`${p}${ret} ${node.name}(${params});${tl}`);
           return;
         }
         // register params in a fresh scope so they never leak into the
@@ -1223,7 +1224,7 @@ sets: new Set(reg.sets),
             ? retTypeCpp(node.ret)
             : (hasReturnValue(node.body) ? 'int' : 'void'));
         const fname = isMain ? 'main' : node.name;
-        emit(`${p}${ret} ${fname}(${params}) {`);
+        emit(`${p}${ret} ${fname}(${params}) {${tl}`);
         genBlock(node.body, indent + 1);
         reg = savedReg;
         if (isMain && !hasReturn(node.body)) emit(`${p}\treturn 0;`);
