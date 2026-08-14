@@ -1,0 +1,64 @@
+// b30: B2-B12 批量修复回归探针
+// B2: 语句 + 同行裸块（不再是 inlineCpp/auto 误判）
+// B3: 负指数/一元号 ^^
+// B4: 未注册类型的指针声明（FILE*）
+// B5: While 括号只包住部分条件
+// B6: range-based for
+// B7: for 头多变量声明
+// B8: 多语句行尾注释只附最后一句
+// B10: do-while 尾注释保留
+// B11/B12: 嵌套内联 If 的 Else 归内层（无 ;; 双分号）
+Def Main() {
+	// B2
+	x = 1 -> int;
+	x = 1; { int y = 2; }
+	Out "B2", Nl;
+	Out x, Nl;
+	// B3
+	Out "B3", Nl;
+	Out 2 ^^ -1, Nl;
+	// B4
+	fp = fopen("nope.txt", "r") -> FILE*;
+	Out "B4", Nl;
+	Out fp == 0, Nl;
+	// B5
+	n = 0 -> int; flag = 1 -> int;
+	While (n < 3) && flag {
+		n++;
+	}
+	Out "B5", Nl;
+	Out n, Nl;
+	// B6
+	v<> -> int;
+	v.add(1); v.add(2); v.add(3);
+	Out "B6", Nl;
+	For (auto e : v) {
+		Out e, Nl;
+	}
+	// B7
+	a[6] -> int;
+	For (i = 0 -> int; i < 6; ++i) Then a[i] = i;
+	For (i = 0 -> int, j = 5 -> int; i < j; ++i, --j) {
+		t = a[i] -> int;
+		a[i] = a[j];
+		a[j] = t;
+	}
+	Out "B7", Nl;
+	For (i = 0 -> int; i < 6; ++i) Then Out a[i], Nl;
+	// B8
+	u = 1 -> int; v2 = 2 -> int; w = 3 -> int;
+	u = 1; v2 = 2; w = 3; /* mid */ // tail
+	Out "B8", Nl;
+	Out u, v2, w, Nl;
+	// B10
+	k = 0 -> int;
+	do {
+		k++;
+	} While k < 3; // dowhile tail comment
+	Out "B10", Nl;
+	Out k, Nl;
+	// B11/B12
+	Out "B12", Nl;
+	If x == 1 Then If x == 0 Then Out 1; Else Out 2;
+	Out Nl;
+}

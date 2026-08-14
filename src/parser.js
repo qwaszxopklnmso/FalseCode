@@ -374,7 +374,9 @@ function parse(sourceText) {
     };
     // do-while tail: `} While (cond);` after a `do {` block
     if (toks[0].value === '}' && toks[1] && toks[1].value.toLowerCase() === 'while') {
-      stmts.push({ kind: 'dowhile', cond: stripSemi(toks.slice(2)), indent: l.indent });
+      const dn = { kind: 'dowhile', cond: stripSemi(toks.slice(2)), indent: l.indent };
+      if (tail) dn.tail = tail;
+      stmts.push(dn);
       return;
     }
     // preprocessor lines (#define, #include, ...) pass through verbatim
@@ -537,10 +539,13 @@ function parse(sourceText) {
             // `x = {1,2,3};` is a brace-init list, NOT an inline C++ block:
             // an inline block's head must look like a function/lambda/ctrl
             // head (`f(...)`, `[](..)`, `if (...)`, `type name`) — a head
-            // ending in bare `=` is an assignment initializer.
+            // ending in bare `=` is an assignment initializer, and a head
+            // ending in `;` is a COMPLETE statement (`x = 1; { y = 2; }`),
+            // so the `{...}` is an independent brace block, not an inline
+            // C++ function/lambda body.
             const head0 = toks.slice(0, braceIdx);
             const lastHead = head0[head0.length - 1];
-            if (!(lastHead && lastHead.value === '=')) {
+            if (!(lastHead && (lastHead.value === '=' || lastHead.value === ';'))) {
               const inner = splitTopSemi(toks.slice(braceIdx + 1, closeIdx))
                 .filter((g) => g.length).map((g) => emitSingle(g));
               inner.inline = true;
@@ -584,22 +589,26 @@ function parse(sourceText) {
           push({ kind: 'stmt', tokens: head, body: last.value === '}' ? [] : readBlock(line.indent), indent: l.indent });
         } else {
           // multiple statements on one line: `a -> int; b -> int;` or
-          // `a = 1; b = 2;` — split at top-level `;`. Embedded `;` inside
-          // braces (lambdas, `{ ... }` inits) is depth-protected, and a bare
-          // `{`-init list was already handled above.
-          const groups = splitTopSemi(toks);
-          for (const g of groups) {
-            const w = g.filter((t) => t.value !== ';');
-            if (!w.length) continue;
+          // `a = 1; b = 2;` — split at top-level `;` (splitTopSemi keeps
+          // depth-protected `;` inside `{}` blocks / lambdas, e.g.
+          // `x = 1; { y = 2; }`), and a bare `{`-init list was already
+          // handled above. A trailing `//` comment belongs to the LAST
+          // statement only (not copied onto every one).
+          const groups = splitTopSemi(toks).filter((g) => g.length);
+          groups.forEach((w, gi) => {
             const first = (w[0].value || '').toLowerCase();
+            const isLast = gi === groups.length - 1;
             if (LINE_KEYWORDS.includes(first)) {
               // `x = 1; Out x;` — a following keyword statement on the same
               // line must go through the real dispatcher, not a raw stmt
               parseLine({ tokens: stripSemi(w), indent: l.indent, lineNo: l.lineNo }, stmts);
+              if (isLast) stamp();
             } else {
-              push({ kind: 'stmt', tokens: stripSemi(w), indent: l.indent });
+              const node = { kind: 'stmt', tokens: stripSemi(w), indent: l.indent };
+              if (isLast && tail) node.tail = tail;
+              stmts.push(node);
             }
-          }
+          });
         }
       }
     }
@@ -875,6 +884,34 @@ function parse(sourceText) {
     if (toks.length && toks[0].value === '(') {
       // parenthesized C-style header: `For (i = 0 -> int; i < 4; ++i) {`
       const { inner, tail } = parenSplit(toks);
+      // range-based for: `For (x : v) {` / `For (auto x : v) {` — a
+      // top-level `:` with NO `;` (a C-style header always has `;`; a
+      // ternary `? :` inside parens is depth-protected)
+      const semi = inner.findIndex((t) => t.value === ';');
+      const colon = (() => {
+        let depth = 0;
+        for (let i = 0; i < inner.length; i++) {
+          const v = inner[i].value;
+          if (v === '(' || v === '[' || v === '<' || v === '<<') depth += v === '<<' ? 2 : 1;
+          else if (v === ')' || v === ']' || v === '>' || v === '>>') depth -= v === '>>' ? 2 : 1;
+          else if (v === ':' && depth === 0) return i;
+        }
+        return -1;
+      })();
+      if (semi < 0 && colon >= 0) {
+        const node = {
+          kind: 'for',
+          init: [],
+          cond: [],
+          step: [],
+          range: { decl: inner.slice(0, colon), rng: inner.slice(colon + 1) },
+          body: parseLoopBody(l, tail),
+          indent: l.indent,
+        };
+        stmts.push(node);
+        node.body.extra && node.body.extra.forEach((e) => stmts.push(Object.assign({}, e, { indent: l.indent })));
+        return;
+      }
       parts = splitSemi(inner);
       bodyTail = tail;
     } else {
@@ -929,8 +966,23 @@ function parse(sourceText) {
     if (toks.length && toks[0].value === '(') {
       // parenthesized: `While (x < n) {` / `While (true)`
       const { inner, tail } = parenSplit(toks);
-      cond = inner;
-      bodyTail = tail;
+      // `While (x < 3) && y {` — the parens are only PART of the condition:
+      // when a top-level operator follows the closing `)`, treat the whole
+      // token run as the condition (bare-header logic) instead of silently
+      // dropping the tail. `While (c) stmt;` keeps its parens as the whole
+      // condition (the tail starts with a statement, not an operator).
+      const firstTail = tail.find((t) => t.value !== '{' && t.value !== '}' && t.value !== ';');
+      if (firstTail && firstTail.type === 'op') {
+        const stop = toks.findIndex((t) =>
+          t.value === '{' || t.value === '?' ||
+          t.value.toLowerCase() === 'then');
+        const end = stop >= 0 ? stop : toks.length;
+        cond = toks.slice(0, end);
+        bodyTail = stop >= 0 ? toks.slice(stop) : [];
+      } else {
+        cond = inner;
+        bodyTail = tail;
+      }
     } else {
       // bare: `while x < n {` / `while true` / `while f(x) < n {`
       const stop = toks.findIndex((t) =>
@@ -1247,10 +1299,20 @@ function parse(sourceText) {
         // on the chain node as `extra` so they run AFTER the if/else chain
         // (C++ `if (c) stmt; stmt2;`) instead of being absorbed into a branch.
         const gg = mergeLoopHead(splitTopSemi(rest.slice(0, chainAt)).filter((g) => g.length));
-        const b = [parseSingle(gg[0], line.indent, line.lineNo)];
-        b.inline = true;
-        const extra = gg.slice(1).map((g) => emitSingle(g));
-        inline = { kind: 'inlineCpp', head: [], inner: b, tail: rest.slice(chainAt), extra };
+        if (gg[0][0] && gg[0][0].value.toLowerCase() === 'if') {
+          // `If x Then If y Then Out 1; Else Out 2;` — the Then body is a
+          // NESTED If, so the following Else/Elif binds to it (C++
+          // dangling-else semantics), not to the outer chain. Parse the whole
+          // rest as one single statement so the nested chain consumes it
+          // (matching the multi-line form, where C++ binds else to the inner
+          // if the same way).
+          inline = parseSingle(rest, line.indent, line.lineNo);
+        } else {
+          const b = [parseSingle(gg[0], line.indent, line.lineNo)];
+          b.inline = true;
+          const extra = gg.slice(1).map((g) => emitSingle(g));
+          inline = { kind: 'inlineCpp', head: [], inner: b, tail: rest.slice(chainAt), extra };
+        }
       } else {
         // `If x == 1 Then Out 1; Out 2;` — same single-statement rule; the
         // trailing statements become `extra` on the body statement.

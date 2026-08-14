@@ -1,0 +1,32 @@
+// two pointers: 双指针 —— 下标和指针都定义在 for 头里（B7 多变量 for 头声明的回归）
+Def Main() {
+	a[6] -> int;
+	For (i = 0 -> int; i < 6; ++i) {
+		a[i] = i * 2;   // a = [0,2,4,6,8,10]
+	}
+	// 下标双指针：i 从前往后，j 从后往前，都声明在 for 定义内
+	For (i = 0 -> int, j = 5 -> int; i < j; ++i, --j) {
+		t = a[i] -> int;
+		a[i] = a[j];
+		a[j] = t;
+	}
+	For (i = 0 -> int; i < 6; ++i) {
+		Out a[i], " ";
+	}
+	Out Nl;
+
+	b[6] -> int;
+	For (i = 0 -> int; i < 6; ++i) {
+		b[i] = (i + 1) * 5;   // b = [5,10,15,20,25,30]
+	}
+	// 指针双指针：指针变量也定义在 for 头里
+	For (p = b -> int*, q = b + 5 -> int*; p < q; ++p, --q) {
+		t = *p -> int;
+		*p = *q;
+		*q = t;
+	}
+	For (i = 0 -> int; i < 6; ++i) {
+		Out b[i], " ";
+	}
+	Out Nl;
+}

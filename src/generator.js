@@ -150,6 +150,24 @@ function gen(ast) {
       }
       if (ok && depth === 0) return true;
     }
+    // a declaration context (`=` before the `->`) whose type ends in a
+    // pointer suffix is unambiguous even when the type name is not
+    // registered: `p = new Node() -> Node*;` declares, while a bare word
+    // (`x = p -> node;`) stays member access. A `*` followed by an operand
+    // (`x = p->v*2;`) is multiplication, not a pointer suffix.
+    if (eqBefore && rest.length && rest[0].type === 'word') {
+      const rawRest = tokens.slice(i + 1);
+      const starIdx = rawRest.findIndex((x) => x.value === '*');
+      if (starIdx >= 0) {
+        let ptrSuffix = true;
+        for (let q = starIdx + 1; q < rawRest.length; q++) {
+          const v = rawRest[q].value;
+          if (v === ';' || v === ',' || v === ')' || v === ']') break;
+          if (v !== '*') { ptrSuffix = false; break; }
+        }
+        if (ptrSuffix) return true;
+      }
+    }
     const last = names[names.length - 1];
     // qualified name (`ns::Name`, names crosses a `::`) is always a type
     return (!ambiguous && typeNames.has(last)) || names.length >= 2 || TYPE_WORD.test(last);
@@ -366,6 +384,18 @@ function gen(ast) {
     return j - 1;
   }
 
+  // True when s[pos] is a `-`/`+` used as a UNARY sign (an operand
+  // boundary precedes it: line start or another operator), not a binary
+  // operator. Used to include the sign in a `^^` operand: `2 ^^ -1`
+  // -> pow(2, -1), while `a - b ^^ 2` keeps `b` (binary `-`).
+  function isUnarySignAt(s, pos) {
+    if (s[pos] !== '-' && s[pos] !== '+') return false;
+    let i = pos - 1;
+    while (i >= 0 && s[i] === ' ') i--;
+    if (i < 0) return true;
+    return !/[\w.)\]}]/.test(s[i]);
+  }
+
   function convertPower(s) {
     // convert inside balanced parens first (deepest first), so nested
     // `(2 ^^ 3) ^^ 2` -> `pow(pow(2, 3), 2)` — otherwise the inner `^^`
@@ -406,11 +436,23 @@ function gen(ast) {
       while (j >= 0 && flat[j] === ' ') j--;
       let k = p + 2;
       while (k < flat.length && flat[k] === ' ') k++;
-      const lhsStart = j >= 0 ? scanOperandStart(flat, j) : -1;
+      let lhsStart = j >= 0 ? scanOperandStart(flat, j) : -1;
+      // a unary sign directly before the LHS operand belongs to it:
+      // `-1 ^^ 2` -> pow(-1, 2) (in `a - b ^^ 2` the `-` is binary)
+      if (lhsStart > 0) {
+        let q = lhsStart - 1;
+        while (q >= 0 && flat[q] === ' ') q--;
+        if (q >= 0 && isUnarySignAt(flat, q)) lhsStart = q;
+      }
+      const rhsStart = k;
+      if (k < flat.length && isUnarySignAt(flat, k)) {
+        k++;   // include the unary sign: `2 ^^ -1` -> rhs `-1`
+        while (k < flat.length && flat[k] === ' ') k++;
+      }
       const rhsEnd = k < flat.length ? scanOperandEnd(flat, k) : -1;
       if (lhsStart >= 0 && lhsStart <= j && rhsEnd >= k) {
         const lhs = flat.slice(lhsStart, j + 1);
-        const rhs = flat.slice(k, rhsEnd + 1);
+        const rhs = flat.slice(rhsStart, rhsEnd + 1);
         const suffix = flat.slice(rhsEnd + 1);
         return convertPower(flat.slice(0, lhsStart) +
           `pow(${lhs}, ${rhs})`) + suffix;
@@ -756,6 +798,41 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
 
   // -------- for-head => C++ fragment --------
   function headDecl(tokens) {
+    // multi-declarator for head: `For (i = 0 -> int, j = n - 1 -> int; ...)`
+    // — resolve each `name = v -> T` separately (a second `=` in a later
+    // declarator used to break the single-annotation scan of the whole
+    // head), then merge same-type declarators (C++ needs ONE type per
+    // for-init: `int i = 0, j = n - 1`).
+    const groups = splitTopCommaT(tokens);
+    if (groups.length > 1) {
+      let type = null;
+      const parts = [];
+      for (const g of groups) {
+        const ann = g.findIndex((t, i) => t.value === '->' && isTypeLike(g, i));
+        if (ann >= 0) {
+          const rawT = typeCpp(g.slice(ann + 1).map((x) => x.value).join(' ').trim());
+          // split off a trailing pointer/ref modifier: `int *` -> base
+          // `int`, mod `*`. C++ repeats the modifier on EVERY declarator
+          // (`int *p = b, *q = b + 5` — a bare `q` would be `int`).
+          const base = rawT.replace(/[\s*&]+$/, '').trim();
+          const mod = (rawT.match(/[\s*&]+$/) || [''])[0].trim();
+          if (type !== null && type !== base) {
+            throw new Error(`for-head declarations must share one type ('${type}' vs '${base}')`);
+          }
+          type = base;
+          const before = g.slice(0, ann);
+          const eq = before.findIndex((x) => x.value === '=');
+          const name = before.slice(0, eq >= 0 ? eq : before.length).map((x) => x.value).join('');
+          const val = eq >= 0 ? expNoSemi(before.slice(eq + 1)) : '';
+          parts.push(`${mod}${name}${eq >= 0 ? ` = ${val}` : ''}`);
+        } else {
+          // untyped declarator: `For (i = 0 -> int, j = 1; ...)` — j joins
+          // the declared type (`int i = 0, j = 1`), like C++.
+          parts.push(expNoSemi(g));
+        }
+      }
+      return type !== null ? `${type} ${parts.join(', ')}` : parts.join(', ');
+    }
     // `->` is a type annotation only when followed by a type keyword or
     // registered custom type (same rule as stmtCpp); otherwise `p->x`.
     const ann = tokens.findIndex((t, i) =>
@@ -770,6 +847,22 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
       return `${type} ${name}${eq >= 0 ? ` = ${val}` : ''}`;
     }
     return expNoSemi(tokens);
+  }
+
+  // split on top-level commas, depth-aware over `()`/`[]`/`<>` so template
+  // args (`map<int,int>`) and calls keep their commas inside the group.
+  function splitTopCommaT(tokens) {
+    const out = [[]];
+    let depth = 0;
+    for (const t of tokens) {
+      const v = t.value;
+      if (v === '(' || v === '[' || v === '<' || v === '<<') depth += v === '<<' ? 2 : 1;
+      if (v === ')' || v === ']' || v === '>' || v === '>>') depth -= v === '>>' ? 2 : 1;
+      if (v === ',' && depth === 0) out.push([]);
+      else out[out.length - 1].push(t);
+    }
+    if (out[out.length - 1].length === 0 && out.length > 1) out.pop();
+    return out;
   }
 
   function splitComma(tokens) {
@@ -924,7 +1017,7 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
         const push = (head, stmts) => {
           if (stmts && stmts.inline && stmts.length === 1) {
             const s = inlineStmt(stmts[0]);
-            if (s !== null) { parts.push(`${head} ${s.trim()}${s.endsWith('}') ? '' : ';'}`); return; }
+            if (s !== null) { parts.push(`${head} ${s.trim()}${/[\};]$/.test(s) ? '' : ';'}`); return; }
           }
           parts.push(`${head} {`);
           for (const st of stmts || []) {
@@ -942,8 +1035,10 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
         const parts = node.inner.map((s) => {
           const c = inlineStmt(s);
           if (c === null || c === '') return '';
-          // a block result (`{ ... }` / `if (...) {...}`) needs no `;`
-          return c.endsWith('}') ? c : c + ';';
+          // a block result (`{ ... }` / `if (...) {...}`) needs no `;`; a
+          // statement that already ends in `;` (a nested inline if chain
+          // like `if (y) a; else b;`) must not get a second one
+          return c.endsWith('}') ? c : c.endsWith(';') ? c : c + ';';
         }).filter((c) => c !== '');
         let headCpp = expNoSemi(fixCppParams(node.head));
         // `f = [] (int x) -> int { ... };` is a lambda *declaration*:
@@ -965,7 +1060,7 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
   // to lay out nested inline blocks.
   function genStmtText(node) {
     const s = inlineStmt(node);
-    if (s !== null) return `${s};`;
+    if (s !== null) return /[\};]$/.test(s) ? s : `${s};`;
     if (node.kind === 'if') return inlineStmt(node);
     return null;
   }
@@ -979,7 +1074,7 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
     const push = (head, stmts) => {
       if (ok && stmts && stmts.inline && stmts.length === 1) {
         const s = inlineStmt(stmts[0]);
-        if (s !== null) { parts.push(`${head} ${s.trim()}${s.endsWith('}') ? '' : ';'}`); return; }
+        if (s !== null) { parts.push(`${head} ${s.trim()}${/[\};]$/.test(s) ? '' : ';'}`); return; }
       }
       ok = false;
     };
@@ -1089,7 +1184,7 @@ sets: new Set(reg.sets),
           if (es.inline && es.length === 1) {
             const s = inlineStmt(es[0]);
             if (s !== null) {
-              emit(`${p}else ${s}${s.endsWith('}') ? '' : ';'}`);
+              emit(`${p}else ${s}${/[\};]$/.test(s) ? '' : ';'}`);
               return;
             }
           }
@@ -1118,13 +1213,28 @@ sets: new Set(reg.sets),
         return;
       }
       case 'for': {
+        if (node.range) {
+          const decl = expNoSemi(node.range.decl);
+          const rng = expNoSemi(node.range.rng);
+          if (node.body.inline && node.body.length === 1) {
+            const s = inlineStmt(node.body[0]);
+            if (s !== null) {
+              emit(`${p}for (${decl} : ${rng}) ${/[\};]$/.test(s) ? s : s + ';'}${tl}`);
+              return;
+            }
+          }
+          emit(`${p}for (${decl} : ${rng}) {${tl}`);
+          genBlock(node.body, indent + 1);
+          emit(`${p}}`);
+          return;
+        }
         const init = headDecl(node.init);
         const cond = node.cond.length ? expNoSemi(node.cond) : '';
         const step = node.step.length ? expNoSemi(node.step) : '';
         if (node.body.inline && node.body.length === 1) {
           const s = inlineStmt(node.body[0]);
           if (s !== null) {
-            emit(`${p}for (${init}; ${cond}; ${step}) ${s};${tl}`);
+            emit(`${p}for (${init}; ${cond}; ${step}) ${/[\};]$/.test(s) ? s : s + ';'}${tl}`);
             return;
           }
         }
@@ -1138,7 +1248,7 @@ sets: new Set(reg.sets),
         if (node.body.inline && node.body.length === 1) {
           const s = inlineStmt(node.body[0]);
           if (s !== null) {
-            emit(`${p}while (${cond}) ${s};${tl}`);
+            emit(`${p}while (${cond}) ${/[\};]$/.test(s) ? s : s + ';'}${tl}`);
             return;
           }
         }
@@ -1157,7 +1267,7 @@ sets: new Set(reg.sets),
         if (node.body.inline && node.body.length === 1 && cond !== null) {
           const s = inlineStmt(node.body[0]);
           if (s !== null) {
-            emit(`${p}do ${s}; while (${cond});${tl}`);
+            emit(`${p}do ${/[\};]$/.test(s) ? s : s + ';'} while (${cond});${tl}`);
             return;
           }
         }

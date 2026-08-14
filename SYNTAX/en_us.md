@@ -15,6 +15,7 @@ False Code language reference. Every rule is given as a sentence template — `N
 | Terminator | Statements end with `;` (same as C++) |
 | Entry | `Def Main() { ... }` (optional params `argc -> int, argv -> string[]`) |
 | No include | No `#include` needed; the C++ contest header is auto-included |
+| Reserved keywords | `in`/`out` are I/O statement keywords — don't use them as ordinary variable names: `in -> T;` / `out -> T;` (no `=`) happen to parse as a declaration of a variable named in/out, but `in = v -> T;` is treated as an input/output statement — rename the variable |
 
 ---
 
