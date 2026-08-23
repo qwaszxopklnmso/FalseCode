@@ -384,9 +384,39 @@ function parse(sourceText) {
       stmts.push({ kind: 'raw', text: l.text, indent: l.indent });
       return;
     }
-    // template header lines pass through verbatim (adding `;` breaks them)
+    // template header lines pass through verbatim (adding `;` breaks them);
+    // a one-line template function head (`template<class T> void read(T &x) {`)
+    // carries an unclosed `{` — its function body must be consumed as a block
+    // (interior lines parsed as False Code) so the following functions don't
+    // nest inside it. Mirrors the struct/class handling.
     if (toks[0].value === 'template') {
       stmts.push({ kind: 'raw', text: l.text, indent: l.indent });
+      const braceDelta = (toks2) => toks2.reduce((d, t) =>
+        t.value === '{' ? d + 1 : t.value === '}' ? d - 1 : d, 0);
+      let depth = braceDelta(l.tokens);
+      while (!atEnd() && depth > 0) {
+        const n = peek();
+        const d = braceDelta(n.tokens);
+        if (depth + d <= 0) {
+          // closing `}` line — pass through verbatim
+          pos++;
+          depth += d;
+          stmts.push({ kind: 'raw', text: n.text, indent: n.indent });
+          break;
+        }
+        if (isCloseOnly(n)) {
+          // a `}` closing an inner block (if/for/while body)
+          pos++;
+          depth += d;
+          continue;
+        }
+        const start = pos;
+        pos++;
+        parseLine(n, stmts);
+        // parseLine may consume several lines (block bodies); count the
+        // braces of every line it consumed so depth stays accurate.
+        for (let i = start; i < pos; i++) depth += braceDelta(lines[i].tokens);
+      }
       return;
     }
     switch (k) {

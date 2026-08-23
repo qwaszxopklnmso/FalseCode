@@ -1,0 +1,53 @@
+// 回文计数程序（deepsleep 模板）—— 底层逻辑与注释全部保留
+#include <iostream>
+using namespace std;
+template<class T> void read(T &x) {
+    int c, s = 1; x = 0;
+    while ((c = getchar()) != EOF && (c < '0' || c > '9'));
+    if (c == '-') s = -1, c = getchar();
+    while (c != EOF && c >= '0' && c <= '9') x = x * 10 + (c ^ '0'), c = getchar();
+    x *= s;
+}
+void stringin(string &x) {
+    x="";
+    char c;
+    do c = getchar();while((c<'a'||c>'z')&&c != EOF);
+    if (c==EOF) return;
+    do x += c,c = getchar();while ((c >= 'a' && c <= 'z') && c != EOF);
+}
+#define _min(x,y) (min(int(x),int(y)))
+#define _max(x,y) (max(int(x),int(y)))
+int getx(string x) {
+    bool f;
+    int sum=0;
+    for(int i = 0;i < x.length();i ++) {
+        f=true;
+        for(int j = _min(i,x.length()-i-1),j2=_max(x.length()-1-i,i);j <= j2;j ++,j2--) {
+            if (j==i) j++;
+            if (j2==i) j2--;
+            if (x[j]^x[j2]) {
+                f=false;break;
+            } else f=true;
+        }
+        if (f) sum++;
+    }
+    return sum;
+}
+[[maybe_unused]]uint16_t deepsleep() {
+    int T,n;
+    string s;
+    read(T);
+    for(int i = 0;i < T;i ++) {
+        read(n);
+        stringin(s); //保证s为回文串
+        printf("%d\n",getx(s));
+    }
+    return 11451;
+}
+Def Main() {
+    If (deepsleep()!=11451) {
+        fprintf(stderr, "[Error] caught nothing\n");
+        throw 0xabcde;
+    }
+    Return 0;
+}

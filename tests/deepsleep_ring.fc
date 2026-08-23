@@ -1,0 +1,56 @@
+// 环形距离程序（deepsleep 模板）—— 底层逻辑与注释全部保留
+#include <iostream>
+#include <algorithm>
+#include <cstring>
+using namespace std;
+typedef long long ll;
+template<class T> void read(T &x) {
+    ll c, s = 1; x = 0;
+    while ((c = getchar()) != EOF && (c < '0' || c > '9'));
+    if (c == '-') s = -1, c = getchar();
+    while (c != EOF && c >= '0' && c <= '9') x = x * 10 + (c ^ '0'), c = getchar();
+    x *= s;
+}
+const ll MAXN=1e5+10;
+ll T,n,m,a[MAXN];
+//算x,y的距离，距离内存在a[i]
+inline ll xdist(ll x,ll y) {
+    return (y>x)?(y-x):m-x+y;
+}
+//保证下标不越界，循环下标
+inline ll circlex(ll x) {
+    return (x>=n)?(x-n):((x<0)?(n+x):(x));
+}
+ll maxdist() {
+    //获得每个mindis最远，短的两个数，求他们的mindis
+    ll max1=1ULL<<62;
+    for(ll i = 0,j=n-1;i < n;i ++,j ++) {
+        max1=min(max1,xdist(a[i],a[circlex(j)]));
+        // printf("[CMP] [j] %lld | %lld %lld mdist:%lld  val:%lld\n",circlex(j),a[i],a[circlex(j)],max1,xdist(a[i],a[circlex(j)]));
+    }
+    return max1;
+}
+[[maybe_unused]]uint16_t deepsleep() {
+    read(T);
+    for(ll i= 0;i < T;i ++) {
+        read(n);read(m);
+        memset(a,0,sizeof(a));
+        for(ll j = 0;j < n;j ++) read(a[j]);
+        if (n==1) {
+            printf("0\n");continue;
+        }
+        if (n==2&&a[0]==a[1]) {
+            printf("0\n");continue;
+        }
+        sort(a,a+n);
+        printf("%lld\n",maxdist());
+    }
+    return 11451;
+}
+Def Main() {
+    If (deepsleep()!=11451) {
+        fprintf(stderr, "[Error] caught nothing\n");
+        throw 0xabcde;
+    }
+    Return 0;
+}
