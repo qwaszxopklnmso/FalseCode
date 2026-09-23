@@ -378,6 +378,19 @@ function parse(sourceText) {
       if (!toks.length) return;
     }
     const k = toks[0].value.toLowerCase();
+    // label line: `fin: Out 1, Nl;` (C++ allows a label and its statement on
+    // one line), `public: int x;`, or a bare `fin:`. The label is emitted on
+    // its own line and the rest of the line parses normally. `case`/`default`
+    // keep their own branches (`::` is a single token, so `std::x` is safe).
+    if (toks.length > 1 && toks[0].type === 'word' && toks[1].value === ':' &&
+        k !== 'case' && k !== 'default') {
+      stmts.push({ kind: 'raw', text: `${toks[0].value}:`, indent: l.indent });
+      const rest = toks.slice(2);
+      if (rest.length && !(rest.length === 1 && rest[0].value === ';')) {
+        parseLine({ tokens: rest, text: l.text, indent: l.indent, lineNo: l.lineNo }, stmts);
+      }
+      return;
+    }
     const line = { tokens: toks, indent: l.indent, lineNo: l.lineNo };
     // attach a trailing comment to a pushed node (inlineCpp keeps its own tail)
     const push = (node) => {

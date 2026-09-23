@@ -1,0 +1,14 @@
+struct S {
+public:
+	x -> int;
+};
+Def Main:
+	i = 1 -> int;
+	If i == 1 Then Goto fin;
+	Out 9, Nl;
+	fin: Out 1, Nl;
+	Out 2, Nl;
+	isBreak: If i == 1 Then Out 4, Nl;
+	o -> S;
+	o.x = 5;
+	Out o.x, Nl;

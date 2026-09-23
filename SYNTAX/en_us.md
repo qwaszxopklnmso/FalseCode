@@ -184,6 +184,7 @@ Also: pointer / multi-word types (`char*`, `int*`, `long long`, `unsigned long l
 | `std::sort`, `next_permutation` | any C++ identifier passes through; STL is fully usable |
 | `a ? b : c`, `p->x`, lambdas | C++ expressions pass through (`->` is a type annotation only when followed by a type keyword) |
 | single-line C++ functions | `bool isEven(int x) { Return x % 2 == 0; };` — False Code keywords inside inline `{}` are auto-lowered to C++ |
+| `Goto label;` / `label:` | jump and label; a label may stand alone or share the line with its statement (`fin: Out x, Nl;`), and `public:` / `private:` inside a class work the same way |
 
 ## Hard rules
 

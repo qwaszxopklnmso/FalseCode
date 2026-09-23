@@ -184,6 +184,7 @@ For i = 0 -> int; i < 5; ++i {
 | `std::sort`、`next_permutation` | 任何 C++ 标识符直接透传，STL 随便用 |
 | `a ? b : c`、`p->x`、`lambda` | C++ 表达式原样透传（`->` 后跟类型关键字才算类型注解） |
 | 单行 C++ 函数 | `bool isEven(int x) { Return x % 2 == 0; };` 行内 `{}` 里的 False Code 关键字自动转 C++ |
+| `Goto 标号;` / `标号:` | 跳转与标号；标号可独占一行，也可与语句同行（`fin: Out x, Nl;`），类内 `public:`／`private:` 同样处理 |
 
 ## 规则红线
 
