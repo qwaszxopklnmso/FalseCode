@@ -263,6 +263,24 @@ function parse(sourceText) {
     return [merged].concat(gg.slice(end));
   }
 
+  // `Then` takes exactly ONE statement. When that statement is a nested
+  // `If ... Then ...;` followed by its own `Else ...;` / `Elif ...;`, C++
+  // dangling-else semantics bind that Else to the INNER if (`while (c) if (a)
+  // x; else y;`), so the whole rest is parsed as one statement; anything after
+  // the complete chain rides along as `extra`.
+  function parseThenSingle(restToks, indent, lineNo) {
+    const raw0 = splitTopSemi(restToks).filter((g) => g.length);
+    const k0 = raw0[0] && raw0[0][0] ? raw0[0][0].value.toLowerCase() : '';
+    if (k0 === 'if' || k0 === 'elif') {
+      return { nodes: [parseSingle(restToks, indent, lineNo)], extra: [] };
+    }
+    const gg = mergeLoopHead(raw0);
+    return {
+      nodes: [parseSingle(gg[0], indent, lineNo)],
+      extra: gg.slice(1).map((g) => emitSingle(g)),
+    };
+  }
+
   // strip wrapping parentheses from a bare-expression token list
   function unparen(tokens) {
     const w = words(tokens);
@@ -436,6 +454,10 @@ function parse(sourceText) {
         // header line passes through verbatim; interior lines are parsed
         // as False Code (C++-style content still passes through as stmts)
         stmts.push({ kind: 'raw', text: l.text, indent: l.indent });
+        // member lines are collected separately so the generator can keep them
+        // from deleting the enclosing scope's registry entries (a member named
+        // like a global array must not break `g##` outside the struct)
+        const agg = [];
         let depth = 0;
         for (const t of l.tokens) {
           if (t.value === '{') depth++;
@@ -450,7 +472,7 @@ function parse(sourceText) {
             // closing line (`};` / `}a[105];`) — pass through verbatim
             pos++;
             depth += d;
-            stmts.push({ kind: 'raw', text: n.text, indent: n.indent });
+            agg.push({ kind: 'raw', text: n.text, indent: n.indent });
             break;
           }
           if (isCloseOnly(n)) {
@@ -470,7 +492,7 @@ function parse(sourceText) {
           const lastTok = lastOf(words(n.tokens));
           if (lastTok && lastTok.value === '{' &&
               !['if', 'elif', 'else', 'while', 'for', 'switch', 'case', 'default', 'do', 'def'].includes(nk0.toLowerCase())) {
-            stmts.push({ kind: 'raw', text: n.text, indent: n.indent });
+            agg.push({ kind: 'raw', text: n.text, indent: n.indent });
             let bd = 1;
             while (!atEnd() && bd > 0) {
               const m = peek();
@@ -487,22 +509,23 @@ function parse(sourceText) {
                 // back to 0 is emitted verbatim.
                 pos++;
                 bd += braceDelta(m.tokens);
-                if (bd <= 0) stmts.push({ kind: 'raw', text: m.text, indent: m.indent });
+                if (bd <= 0) agg.push({ kind: 'raw', text: m.text, indent: m.indent });
                 continue;
             }
             const mstart = pos;
               pos++;
-              parseLine(m, stmts);
+              parseLine(m, agg);
               for (let i = mstart; i < pos; i++) bd += braceDelta(lines[i].tokens);
             }
             for (let i = start; i < pos; i++) depth += braceDelta(lines[i].tokens);
             continue;
           }
-          parseLine(n, stmts);
+          parseLine(n, agg);
           // parseLine may consume several lines (block bodies); count the
           // braces of every line it consumed so depth stays accurate.
           for (let i = start; i < pos; i++) depth += braceDelta(lines[i].tokens);
         }
+        stmts.push({ kind: 'aggBody', stmts: agg, indent: l.indent });
         return;
       }
       case 'return': push({ kind: 'return', tokens: stripSemi(toks.slice(1)), indent: l.indent }); return;
@@ -818,11 +841,10 @@ function parse(sourceText) {
       return { kind: 'block', stmts: b };
     }
     if (toks[0].value.toLowerCase() === 'then') {
-      const gg = mergeLoopHead(splitTopSemi(toks.slice(1)).filter((g) => g.length));
-      const b = [parseSingle(gg[0], l.indent, l.lineNo)];
-      b.inline = true;
-      const blk = { kind: 'block', stmts: b };
-      if (gg.length > 1) blk.extra = gg.slice(1).map((g) => emitSingle(g));
+      const { nodes, extra } = parseThenSingle(toks.slice(1), l.indent, l.lineNo);
+      nodes.inline = true;
+      const blk = { kind: 'block', stmts: nodes };
+      if (extra.length) blk.extra = extra;
       return blk;
     }
     // `Else Out 9; Out 10;` — the else branch takes ONE statement; trailing
@@ -872,6 +894,12 @@ function parse(sourceText) {
 
   function parseCase(l, stmts) {
     const toks = words(l.tokens).slice(1);
+    // `Case 1? { ... }` / `Case 1: { ... }` is not False Code: a Case body comes
+    // from `?` + an indented block or `Then <stmt>`; a `{` here would leak into
+    // the case value and emit garbage C++. Reject it explicitly.
+    if (toks.some((t) => t.value === '{')) {
+      err("'Case' does not take a '{ ... }' body — write 'Case 1?' (or 'Case 1? Then <stmt>') and indent the statements", l);
+    }
     let thenIdx = toks.findIndex((t) => t.value.toLowerCase() === 'then');
     let val, body;
     if (thenIdx >= 0) {
@@ -1100,14 +1128,13 @@ function parse(sourceText) {
     if (tail.length && tail[0].value.toLowerCase() === 'then') {
       // Then takes ONE statement; extra statements are loop-body-independent
       // and run after the loop (kept via `extra`, same as `{ ... } stmt;`)
-      const gg = mergeLoopHead(splitTopSemi(tail.slice(1)).filter((g) => g.length));
-      const b = [parseSingle(gg[0], l.indent, l.lineNo)];
-      b.inline = true;
-      if (gg.length > 1) {
-        b.extra = gg.slice(1).map((g) => emitSingle(g));
-        b.extra.inline = true;
+      const { nodes, extra } = parseThenSingle(tail.slice(1), l.indent, l.lineNo);
+      nodes.inline = true;
+      if (extra.length) {
+        nodes.extra = extra;
+        nodes.extra.inline = true;
       }
-      return b;
+      return nodes;
     }
     if (tail.length) {
       const b = [emitSingle(tail)];   // e.g. `while(x) stmt;`
@@ -1120,14 +1147,13 @@ function parse(sourceText) {
       if (kw(n) === 'then') {
         pos++;
         const rest = words(n.tokens).slice(1);
-        const gg = mergeLoopHead(splitTopSemi(rest).filter((g) => g.length));
-        const b = [parseSingle(gg[0], l.indent, l.lineNo)];
-        b.inline = true;
-        if (gg.length > 1) {
-          b.extra = gg.slice(1).map((g) => emitSingle(g));
-          b.extra.inline = true;
+        const { nodes, extra } = parseThenSingle(rest, l.indent, l.lineNo);
+        nodes.inline = true;
+        if (extra.length) {
+          nodes.extra = extra;
+          nodes.extra.inline = true;
         }
-        return b;
+        return nodes;
       }
     }
     return [];
@@ -1138,7 +1164,21 @@ function parse(sourceText) {
     let toks = words(l.tokens).slice(1);
     const name = toks.shift().value;
     const { inner, tail } = parenSplit(toks);
-    const params = splitComma(inner)
+    // depth-aware split: `map<int,int>` / `pair<int,int>` must not split on the
+    // comma between template arguments
+    const splitParams = (tokens) => {
+      const out = [[]];
+      let depth = 0;
+      for (const t of tokens) {
+        const v = t.value;
+        if (v === '(' || v === '[' || v === '{' || v === '<' || v === '<<') depth += v === '<<' ? 2 : 1;
+        else if (v === ')' || v === ']' || v === '}' || v === '>' || v === '>>') depth -= v === '>>' ? 2 : 1;
+        if (v === ',' && depth === 0) out.push([]);
+        else out[out.length - 1].push(t);
+      }
+      return out;
+    };
+    const params = splitParams(inner)
       .filter((g) => g.length)
       .map((g) => {
         const arrIdx = g.findIndex((t) => t.value === '[');
@@ -1157,9 +1197,19 @@ function parse(sourceText) {
             .flatMap((t) => t.value === '<<' ? ['<', '<'] : t.value === '>>' ? ['>', '>'] : [t.value]);
           nesting = flat.filter((v) => v === '<').length;
         }
-        let name, type;
+        let name, type, tpl = false;
         if (annIdx >= 0) {
-          type = toText(g.slice(annIdx + 1));
+          let typeText = toText(g.slice(annIdx + 1));
+          // annotation-side `<>`: `v -> int<>` == `v<> -> int` (a vector);
+          // `v -> int<<>>` == `vector<vector<int>>`
+          for (;;) {
+            if (!/<\s*>/.test(typeText)) break;
+            nesting += 1;
+            typeText = typeText.replace(/<\s*>/, ' ');
+          }
+          typeText = typeText.replace(/\s+/g, ' ').trim();
+          tpl = !!typeText && /[<>]/.test(typeText);
+          type = typeText;
           name = g.slice(0, cut).map((t) => t.value).join('');
         } else {
           // C++-style prefix params: `Vec o`, `int a[]`, `Node* p`, `const Big& b`
@@ -1170,6 +1220,11 @@ function parse(sourceText) {
           if (nameIdx > 0) {
             name = g[nameIdx].value;
             type = toText(g.slice(0, nameIdx));
+            tpl = /[<>]/.test(type);
+            // the type already carries its own template args (`vector<int> v`),
+            // so the angle count seen before it must not wrap it again into
+            // `vector<vector<int>>`
+            if (tpl) nesting = 0;
           } else {
             name = g.slice(0, cut).map((t) => t.value).join('');
             type = '';
@@ -1180,6 +1235,7 @@ function parse(sourceText) {
           array: arrIdx >= 0,
           size,
           nesting,
+          tpl,
           type,
         };
       });

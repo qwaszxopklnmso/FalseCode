@@ -124,6 +124,10 @@ Else {
 }
 ```
 
+`Then` 后只跟 **一条语句**（与 C++ 的 `if (c) stmt;` 同理）：逗号隔开的赋值（`a = 1, b = 2;`）算一条语句；嵌套的 `If … Then …; Else …;` 整体算一条语句，其中 `Else` 绑定**内层** `If`（等同 C++ 的 dangling-else：`While c Then If a Then X; Else Y;` → `while (c) if (a) X; else Y;`）。同一行剩下的语句在整条链之后执行（`If x Then A; Else B; C;` → `if (x) A; else B; C;`）。
+
+`Case` 不接 `{ ... }`：`Case 1? { ... }` 会直接报错，请写 `Case 1?` 后缩进，或 `Case 1? Then 单语句;`。
+
 `Switch`：`Switch 值 { Case 值: ... Else ... }`——`Else` 在 switch 里变成 `default:`；`case` 标签可以跟 switch 同缩进（C++ 风格）。
 
 ---

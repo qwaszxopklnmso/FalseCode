@@ -48,6 +48,11 @@ function gen(ast) {
   // entry used by `arr##` in main().
   let reg = { arrays, strings, sets, maps, queues };
 
+  // inside a struct/class/union body: member declarations register their own
+  // containers but must NOT delete/overwrite the enclosing scope's entries
+  // (a member named like a global array would otherwise break `g##` outside)
+  let inAggregate = false;
+
   const isStringType = (text) => (text || '').replace(/\s+/g, '').endsWith('string');
 
   // walk the whole AST first so every custom type name is registered
@@ -96,6 +101,13 @@ function gen(ast) {
         else if (v === '>' || v === ')' || v === ']') depth--;
         else if (depth === 0 && v === '=') return false;
       }
+    }
+    // cv-qualified type: `-> const int`, `-> const string`, `-> const int&`.
+    // `const`/`volatile` can only start a type, never a member name, so this is
+    // unambiguous even in declaration context (the qualifier is emitted as-is).
+    if (rest.length && rest[0].type === 'word' &&
+        /^(const|volatile)$/i.test(rest[0].value)) {
+      return true;
     }
     // a top-level `=` *before* the `->` (`x = v -> T;`) makes a BARE custom
     // type name ambiguous: `x = p -> node;` is member access, not a
@@ -249,6 +261,9 @@ function gen(ast) {
       const base = (recv.match(/^[A-Za-z_]\w*/) || [''])[0];
       if (recv === base) {
         const ai = reg.arrays.get(base);
+        if (ai && ai.param) {
+          throw new Error(`'.len' is not available for array parameter '${base}': a C++ array parameter decays to a pointer — pass the length as another parameter, or use a vector ('${base}<>')`);
+        }
         if (ai && ai.kind === 'fixed') return `(sizeof(${base}) / sizeof(${base}[0]))`;
         return reg.strings.has(base) ? `${base}.length()` : `${base}.size()`;
       }
@@ -304,15 +319,27 @@ function gen(ast) {
         // markers in `arg` — recurse so they expand too
         const argOut = arg.includes('\u0002') ? dropParenArgs(arg) : arg;
         const isSet = reg.sets.has(nm);
+        const isQueue = reg.queues.has(nm);
+        const isStr = reg.strings.has(nm);
         if (op === 'add') {
           if (reg.maps.has(nm)) {
             const kv = splitTopComma(argOut);
             out += kv.length === 2 ? `${nm}[${kv[0]}] = ${kv[1]}` : `${nm}.insert(${argOut})`;
+          } else if (isSet) {
+            out += `${nm}.insert(${argOut})`;
+          } else if (isQueue) {
+            out += `${nm}.push(${argOut})`;
+          } else if (isStr) {
+            out += `${nm} += ${argOut}`;
           } else {
-            out += isSet ? `${nm}.insert(${argOut})` : `${nm}.push_back(${argOut})`;
+            out += `${nm}.push_back(${argOut})`;
           }
+        } else if (isSet) {
+          out += `${nm}.erase(${argOut})`;
+        } else if (isQueue) {
+          out += `${nm}.pop()`;
         } else {
-          out += isSet ? `${nm}.erase(${argOut})` : `${nm}.pop_back()`;
+          out += `${nm}.pop_back()`;
         }
       } else {
         out += s[i];
@@ -552,6 +579,34 @@ function gen(ast) {
     // (declarator suffix is redundant then); `v<>` -> `vector<v>`.
     // (defined at generator scope, shared with the def return-type path)
 
+    // drop a name's earlier registrations (a re-declaration must not keep the
+    // outer container semantics) — except inside a struct/class/union body,
+    // where a member name may collide with an unrelated outer variable
+    const clearReg = (name) => {
+      if (inAggregate) return;
+      reg.arrays.delete(name);
+      reg.strings.delete(name);
+      reg.queues.delete(name);
+      reg.sets.delete(name);
+      reg.maps.delete(name);
+    };
+
+    // register a declared name so later `##` / `.add()` / `.len` pick the right
+    // container operation (vector / string / queue / set / map). A template
+    // annotation (`x -> vector<int>;`) must register the vector too, not just
+    // the `x<> -> T` declarator form.
+    const registerDecl = (name, typeText, dims) => {
+      if (isStringType(typeText)) reg.strings.add(name);
+      if (/^queue\s*</i.test(typeText)) reg.queues.set(name, typeText);
+      if (isSetType(typeText)) reg.sets.add(name);
+      if (isMapType(typeText)) reg.maps.add(name);
+      if (/\bvector\s*</i.test(typeText)) {
+        const vn = (typeText.match(/\bvector\s*</gi) || []).length;
+        reg.arrays.set(name, { kind: 'vector', nested: vn > 1 });
+      }
+      if (dims) reg.arrays.set(name, { kind: 'fixed' });
+    };
+
     // declaration name: the single identifier before any `[`/`<`/`=` suffix
     const nameFrom = (slice) => {
       let end = slice.length;
@@ -587,9 +642,29 @@ function gen(ast) {
     // `->` is a False Code type annotation only when followed by a type
     // keyword, a registered custom type, or `ns::Name`; otherwise it is
     // plain C++ member access (`p->x`).
-    const annIdx = tokens.findIndex((t, i) =>
+    let annIdx = tokens.findIndex((t, i) =>
       t.value === '->' && isTypeLike(tokens, i));
     const eqIdx = tokens.findIndex((t) => t.value === '=');
+    // placeholder annotation `name -> ph[...] -> realType` carries a nested
+    // `->`. Pick the FIRST arrow so the whole annotation is read as one unit
+    // (`g -> v<<>> -> pair<int,int>`, `c -> ph -> double`); otherwise
+    // isTypeLike may pick the second arrow and the leading `name ->` leaks into
+    // the declarator. Only a bare leading identifier qualifies, so C++
+    // member-access chains (`x = p->v -> int;`) keep their own `->`.
+    {
+      const arrows = [];
+      let d = 0;
+      for (let i = 0; i < tokens.length; i++) {
+        const v = tokens[i].value;
+        if (v === '(' || v === '[' || v === '<' || v === '<<') d++;
+        else if (v === ')' || v === ']' || v === '>' || v === '>>') d--;
+        else if (v === '->' && d === 0) arrows.push(i);
+      }
+      if (arrows.length >= 2 && arrows[0] === 1 && tokens[0].type === 'word' &&
+          isTypeLike(tokens, arrows[arrows.length - 1])) {
+        annIdx = arrows[0];
+      }
+    }
 
     // -------- declarations (annotation present) --------
     if (annIdx >= 0) {
@@ -613,6 +688,43 @@ function gen(ast) {
         if (tComma) {
           throw new Error(`invalid type list '${typeTok.map((t) => t.value).join(' ')}': only one type per declaration (multi-var is 'a, b -> T;')`);
         }
+      }
+
+      // `name -> placeholder<<>> -> realType`: the annotation itself carries a
+      // SECOND `->`. Treat the last `->` as the separator between an (unknown)
+      // placeholder type and the real base type, and let the placeholder's
+      // `<>` pairs give the vector nesting depth — the annotation-side mirror
+      // of `w<<<<thing>>>> -> int` (an inner placeholder that isn't a known
+      // type falls back to the `->` type). With no `<>` pair the real type
+      // simply wins: `x -> ph -> int;` -> `int x;`.
+      let lastArrow = -1;
+      for (let j = typeTok.length - 1; j >= 0; j--) {
+        if (typeTok[j].value === '->') { lastArrow = j; break; }
+      }
+      if (lastArrow >= 0) {
+        const ph = typeTok.slice(0, lastArrow);
+        const real = typeTok.slice(lastArrow + 1);
+        const name = nameFrom(declLHS);
+        if (eqIdx >= 0 && eqIdx < annIdx) {
+          throw new Error(`declaration '${name}' cannot take an initializer with a placeholder type`);
+        }
+        const flat = ph.flatMap((t) =>
+          t.value === '<<' ? ['<', '<'] : t.value === '>>' ? ['>', '>'] : [t.value]);
+        const openCount = flat.filter((v) => v === '<').length;
+        const closeCount = flat.filter((v) => v === '>').length;
+        if (openCount !== closeCount) {
+          throw new Error(`invalid dynamic array '${name}<>': expected balanced '<' '>' pairs (e.g. x<> or vec<<>>)`);
+        }
+        const innerText = flat.filter((v) => v !== '<' && v !== '>').join(' ').trim();
+        const known = (s) => !!s && (TYPE_WORD.test(s) || typeNames.has(s));
+        const realText = splitTypeSuffix(real).type;
+        const base = known(innerText) ? typeCpp(innerText) : typeCpp(realText);
+        if (openCount) {
+          reg.arrays.set(name, { kind: 'vector', nested: openCount > 1 });
+          return `${'vector<'.repeat(openCount)}${base}${'>'.repeat(openCount)} ${name};`;
+        }
+        reg.arrays.delete(name);
+        return `${base} ${name};`;
       }
 
       // annotation `<>` wins over the declarator: `c[10] -> v<>` -> `vector<v> c[10]`
@@ -707,11 +819,10 @@ function gen(ast) {
           const names = splitComma(lhsToks).map((g) => declName(g));
           const vals = splitComma(valToks);
           if (vals.length === names.length) {
-            names.forEach((n, i) => reg.arrays.delete(n));
-            if (isStringType(typeText2)) names.forEach((n) => reg.strings.add(n));
-if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
-            if (isMapType(typeText2)) names.forEach((n) => reg.maps.add(n));
-            if (typeSfx.dims) names.forEach((n) => reg.arrays.set(n, { kind: 'fixed' }));
+            names.forEach((n) => {
+              clearReg(n);
+              registerDecl(n, typeText2, typeSfx.dims);
+            });
             const parts = names.map((n, i) => {
               const v = vals[i].length ? expNoSemi(vals[i]) : '';
               return `${n}${typeSfx.dims}${v ? ` = ${v}` : ''}`;
@@ -722,13 +833,8 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
         }
         const lhs = declName(lhsToks);
         const val = expNoSemi(valToks);
-        reg.arrays.delete(lhs);
-        reg.sets.delete(lhs);
-        reg.maps.delete(lhs);
-        if (isStringType(typeText2)) reg.strings.add(lhs);
-        if (isSetType(typeText2)) reg.sets.add(lhs);
-        if (isMapType(typeText2)) reg.maps.add(lhs);
-        if (typeSfx.dims) reg.arrays.set(lhs, { kind: 'fixed' });
+        clearReg(lhs);
+        registerDecl(lhs, typeText2, typeSfx.dims);
         return `${typeCpp(typeText2)} ${lhs}${typeSfx.dims} = ${val};`;
       }
       // `x -> T`
@@ -737,29 +843,20 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
         const lhsToks = tokens.slice(0, annIdx);
         if (lhsToks.some((t) => t.value === ',')) {
           const names = splitComma(lhsToks).map((g) => declName(g));
-          names.forEach((n) => {
-            reg.arrays.delete(n);
-            reg.strings.delete(n);
-            reg.queues.delete(n);
-            reg.sets.delete(n);
-            reg.maps.delete(n);
-          });
+          names.forEach((n) => clearReg(n));
           if (isStringType(typeText2)) names.forEach((n) => reg.strings.add(n));
           if (/^queue\s*</i.test(typeText2)) names.forEach((n) => reg.queues.set(n, typeText2));
           if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
           if (isMapType(typeText2)) names.forEach((n) => reg.maps.add(n));
+          if (/\bvector\s*</i.test(typeText2)) {
+            const vn = (typeText2.match(/\bvector\s*</gi) || []).length;
+            names.forEach((n) => reg.arrays.set(n, { kind: 'vector', nested: vn > 1 }));
+          }
           return `${typeCpp(typeText2)} ${names.map((n) => n + typeSfx.dims).join(', ')};`;
         }
         const lhs = declName(lhsToks);
-        reg.arrays.delete(lhs);
-        reg.strings.delete(lhs);
-        reg.queues.delete(lhs);
-        reg.sets.delete(lhs);
-        reg.maps.delete(lhs);
-        if (isStringType(typeText2)) reg.strings.add(lhs);
-        if (/^queue\s*</i.test(typeText2)) reg.queues.set(lhs, typeText2);
-        if (isSetType(typeText2)) reg.sets.add(lhs);
-        if (isMapType(typeText2)) reg.maps.add(lhs);
+        clearReg(lhs);
+        registerDecl(lhs, typeText2, typeSfx.dims);
         return `${typeCpp(typeText2)} ${lhs}${typeSfx.dims};`;
       }
     }
@@ -777,19 +874,27 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
       const strReset = (name) => reg.strings.has(name) ? `${name}.clear();` : null;
       const setReset = (name) => reg.sets.has(name) ? `${name}.clear();` : null;
       const queReset = (name) => reg.queues.has(name) ? `${name} = ${reg.queues.get(name)}();` : null;
+      // `g[0]##`: a subscripted receiver is looked up by its base name, and
+      // only a nested container's element is itself a container worth clearing
+      // (`g[0]` of `vector<vector<T>>` clears; `v[0]` of `vector<int>` is a
+      // scalar and falls back to `= 0`).
+      const zeroTarget = (expr) => {
+        const info0 = reg.arrays.get(expr);
+        const base = (expr.match(/^([A-Za-z_]\w*)/) || [])[1];
+        const info = info0 || (base && base !== expr ? reg.arrays.get(base) : null);
+        if (!info) return null;
+        const depth = (expr.match(/\[/g) || []).length;
+        if (info.kind === 'fixed') return `memset(${expr}, 0, sizeof(${expr}));`;
+        if (info.kind === 'vector' && depth < (info.nested ? 2 : 1)) return `${expr}.clear();`;
+        return null;
+      };
       if (zeroIdx === 0) {
         // prefix form: `##i` -> `i = 0;`  (analogous to `++i` / `--i`)
         const rhs = expNoSemi(tokens.slice(1));
-        const info = reg.arrays.get(rhs);
-        if (info && info.kind === 'fixed') return `memset(${rhs}, 0, sizeof(${rhs}));`;
-        if (info && info.kind === 'vector') return `${rhs}.clear();`;
-        return strReset(rhs) || setReset(rhs) || queReset(rhs) || `${rhs} = 0;`;
+        return zeroTarget(rhs) || strReset(rhs) || setReset(rhs) || queReset(rhs) || `${rhs} = 0;`;
       }
       const lhs = tokens.slice(0, zeroIdx).map((t) => t.value).join('');
-      const info = reg.arrays.get(lhs);
-      if (info && info.kind === 'fixed') return `memset(${lhs}, 0, sizeof(${lhs}));`;
-      if (info && info.kind === 'vector') return `${lhs}.clear();`;
-      return strReset(lhs) || setReset(lhs) || queReset(lhs) || `${lhs} = 0;`;
+      return zeroTarget(lhs) || strReset(lhs) || setReset(lhs) || queReset(lhs) || `${lhs} = 0;`;
     }
 
     // -------- ordinary expression statement --------
@@ -926,20 +1031,27 @@ if (isSetType(typeText2)) names.forEach((n) => reg.sets.add(n));
   // in a bigger expression (i.e. everything before it is a plain lvalue and
   // nothing follows it). `a## + b;` therefore falls through to `exp()`.
   function isPureLvalueCtx(tokens, zeroIdx) {
-    if (zeroIdx === 0) {
-      // `## x` prefix form needs a single plain target and nothing else
-      const rest = tokens.slice(1);
-      return rest.length > 0 && rest.every((t) =>
-        t.value === ';' || /^[A-Za-z_][A-Za-z_0-9]*$/.test(t.value));
-    }
     const pre = tokens.slice(0, zeroIdx);
     const post = tokens.slice(zeroIdx + 1);
-    if (post.some((t) => t.value !== ';')) return false;
-    if (pre.some((t) => t.value === '**')) return false;
-    return pre.every((t) =>
-      /^[A-Za-z_][A-Za-z_0-9]*$/.test(t.value) ||
-      t.value === '.' || t.value === '->' ||
-      t.value === '[' || t.value === ']');
+    const lvalueToks = zeroIdx === 0 ? post : pre;
+    const extra = zeroIdx === 0 ? pre : post;
+    if (extra.some((t) => t.value !== ';')) return false;
+    if (!lvalueToks.length) return false;
+    if (zeroIdx !== 0 && lvalueToks.some((t) => t.value === '**')) return false;
+    // Inside `[...]` anything goes (`g[i + 1]##` is still an lvalue); at top
+    // level only an identifier / member chain qualifies (never `a + b ##`).
+    let depth = 0;
+    let any = false;
+    for (const t of lvalueToks) {
+      const v = t.value;
+      if (v === ';') continue;                 // prefix form's trailing `;`
+      if (v === '[') { depth++; any = true; continue; }
+      if (v === ']') { depth--; if (depth < 0) return false; continue; }
+      if (depth > 0) { any = true; continue; }
+      if (/^[A-Za-z_][A-Za-z_0-9]*$/.test(v) || v === '.' || v === '->') { any = true; continue; }
+      return false;
+    }
+    return depth === 0 && any;
   }
 
   // C++-style function headers with False Code annotations in the params:
@@ -1138,6 +1250,13 @@ sets: new Set(reg.sets),
       case 'block':
         genBlock(node.stmts, indent);
         return;
+      case 'aggBody': {
+        const prev = inAggregate;
+        inAggregate = true;
+        genBlock(node.stmts, indent);
+        inAggregate = prev;
+        return;
+      }
       case 'out': {
         const args = splitComma(node.tokens)
           .map((g) => squeezeSemi(g))
@@ -1285,6 +1404,7 @@ sets: new Set(reg.sets),
           const params = node.params.map((pp) => {
             const t = plainType(pp.type) || 'int';
             if (pp.nesting) return `${'vector<'.repeat(pp.nesting)}${t}${'>'.repeat(pp.nesting)}& ${pp.name}`;
+            if (pp.tpl) return `${t}${/&\s*$/.test(t) ? ' ' : '& '}${pp.name}`;
             if (pp.array) return pp.size ? `${t} ${pp.name}[${pp.size}]` : `vector<${t}>& ${pp.name}`;
             return `${t} ${pp.name}`;
           }).join(', ');
@@ -1312,12 +1432,29 @@ sets: new Set(reg.sets),
           if (pp.name === 'argv') return 'char** argv';
           const t = plainType(pp.type) || 'int';
           if (pp.nesting) {
-            reg.arrays.set(pp.name, { kind: 'vector' });
+            reg.arrays.set(pp.name, { kind: 'vector', nested: pp.nesting > 1 });
             return `${'vector<'.repeat(pp.nesting)}${t}${'>'.repeat(pp.nesting)}& ${pp.name}`;
+          }
+          // C++-style template parameter (`vector<int> v`, `map<int,int> m`):
+          // emit the type whole (no extra vector<> wrap), pass by reference and
+          // register the container for `.add()` / `##` / `.len`
+          if (pp.tpl) {
+            if (/\bvector\s*</i.test(t)) {
+              const vn = (t.match(/\bvector\s*</gi) || []).length;
+              reg.arrays.set(pp.name, { kind: 'vector', nested: vn > 1 });
+            }
+            if (isStringType(t)) reg.strings.add(pp.name);
+            if (isSetType(t)) reg.sets.add(pp.name);
+            if (isMapType(t)) reg.maps.add(pp.name);
+            if (/^(std\s*::\s*)?queue\s*</i.test(t)) reg.queues.set(pp.name, t);
+            return `${t}${/&\s*$/.test(t) ? ' ' : '& '}${pp.name}`;
           }
           if (pp.array) {
             if (pp.size) {
-              reg.arrays.set(pp.name, { kind: 'fixed' });
+              // a C++ array parameter decays to a pointer, so `.len` cannot
+              // work on it — mark it so `.len` raises a clear error instead of
+              // emitting a bogus `sizeof(a)/sizeof(a[0])`
+              reg.arrays.set(pp.name, { kind: 'fixed', param: true });
               return `${t} ${pp.name}[${pp.size}]`;
             }
             reg.arrays.set(pp.name, { kind: 'vector' });

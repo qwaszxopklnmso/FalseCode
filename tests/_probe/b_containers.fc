@@ -1,0 +1,19 @@
+Def Main:
+	q -> queue<int>;
+	q.add(1);
+	q.add(2);
+	q.remove(0);
+	s = "x" -> string;
+	s.add("y");
+	s.add("z");
+	v -> vector<int>;
+	v.add(1);
+	v##;
+	g<<>> -> int;
+	row<> -> int;
+	g.add(row);
+	g[0]##;
+	w<> -> int;
+	w.add(1);
+	w[0]##;
+	Out q.len, s, v.len, g.len, w[0], Nl;

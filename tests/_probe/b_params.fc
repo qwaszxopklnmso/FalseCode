@@ -1,0 +1,24 @@
+Def f(n -> int, m -> map<int,int>, s -> string) {
+	s.add("!");
+	m.add(1, 2);
+	Out n, m.len, s, Nl;
+}
+Def g(vector<int> v, pair<int,int> p) {
+	v.add(9);
+	Out v.len, p.first, Nl;
+}
+Def h(v -> int<>) {
+	Out v.len, Nl;
+}
+Def k(x -> int<<>>) {
+	Out x.len, Nl;
+}
+Def Main:
+	d -> map<int,int>;
+	f(1, d, "a");
+	a<> -> int;
+	pp = {1, 2} -> pair<int,int>;
+	g(a, pp);
+	h(a);
+	g2<<>> -> int;
+	k(g2);

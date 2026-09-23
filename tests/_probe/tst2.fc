@@ -1,0 +1,11 @@
+Def Main:
+	g -> v<<>> -> pair<int,int>;
+	g##;
+	a -> ph<> -> long long;
+	a##;
+	b -> int<<>> -> int;
+	b##;
+	c -> ph -> double;
+	c = 1;
+	d<<>> -> pair<int,int>;
+	d##;

@@ -1,0 +1,5 @@
+Def Main:
+	x = 1 -> int;
+	Switch x {
+		Case 1? { Out 1, Nl; }
+	}

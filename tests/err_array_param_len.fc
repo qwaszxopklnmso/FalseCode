@@ -1,0 +1,6 @@
+Def f(a[3] -> int) {
+	Out a.len, Nl;
+}
+Def Main:
+	b[3] -> int;
+	f(b);

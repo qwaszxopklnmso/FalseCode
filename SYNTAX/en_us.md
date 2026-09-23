@@ -124,6 +124,10 @@ Else {
 }
 ```
 
+`Then` takes exactly **one statement** (same as C++ `if (c) stmt;`): comma-separated assignments (`a = 1, b = 2;`) count as one statement; a nested `If … Then …; Else …;` counts as one statement too, and its `Else` binds to the **inner** `If` (C++ dangling-else: `While c Then If a Then X; Else Y;` → `while (c) if (a) X; else Y;`). Any remaining statements on the same line run after the whole chain (`If x Then A; Else B; C;` → `if (x) A; else B; C;`).
+
+`Case` never takes `{ ... }`: `Case 1? { ... }` is an error — write `Case 1?` with an indented body, or `Case 1? Then SingleStmt;`.
+
 `Switch`: `Switch Value { Case Val: ... Else ... }` — `Else` inside a switch becomes `default:`; `case` labels may sit at the same indent as `switch` (C++ style).
 
 ---

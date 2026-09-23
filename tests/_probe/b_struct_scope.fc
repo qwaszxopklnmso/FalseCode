@@ -1,0 +1,20 @@
+g[10] -> int;
+st -> set<int>;
+s = "ab" -> string;
+struct S {
+	g -> int;
+	st -> int;
+	s -> int;
+	m -> map<int,int>;
+	v -> vector<int>;
+};
+Def Main:
+	g[0] = 5;
+	g##;
+	st.add(1);
+	st##;
+	s##;
+	o -> S;
+	o.m.add(1, 2);
+	o.v.add(3);
+	Out g[0], st.len, s, o.m.len, o.v.len, Nl;

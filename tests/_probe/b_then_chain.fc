@@ -1,0 +1,8 @@
+Def Main:
+	i = 0 -> int;
+	While false Then If i == 1 Then Out 1, Nl; Else Out 2, Nl;
+	For (j = 0 -> int; j < 3; j ++) Then If j == 1 Then Out 3, Nl; Else Out 4, Nl;
+	If 1 Then If i == 0 Then Out 5, Nl; Else Out 6, Nl;
+	x = 4 -> int;
+	If x == 4 Then Out 8, Nl; Else Out 9, Nl; Out 10, Nl;
+	Out 11, Nl;
