@@ -1,0 +1,34 @@
+enum Color { RED, GREEN, BLUE };
+enum class Shape { CIRCLE, SQUARE };
+typedef enum { TA, TB } TE;
+enum WithVals {
+	VA = 1,
+	VB = 2,
+	VC = 4
+};
+struct Holder {
+	enum Kind { KA, KB };
+	k -> Kind;
+};
+Def pick(c -> Color) -> int {
+	Switch c {
+		Case RED? Then Return 10;
+		Case GREEN? Then Return 20;
+		Else { Return 30; }
+	}
+}
+Def Main:
+	c -> Color;
+	c = GREEN;
+	Out pick(c), Nl;
+	s -> Shape;
+	s = Shape::SQUARE;
+	Out (int)s, Nl;
+	t -> TE;
+	t = TB;
+	Out t, Nl;
+	Out VA + VB + VC, Nl;
+	h -> Holder;
+	h.k = Holder::KA;
+	Out h.k, Nl;
+	Out BLUE, Nl;

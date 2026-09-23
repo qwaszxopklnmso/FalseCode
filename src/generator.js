@@ -72,10 +72,17 @@ function gen(ast) {
       if (m) typeNames.add(m[1]);
       const nm = line0.match(/^\s*namespace\s+([A-Za-z_]\w*)/);
       if (nm) typeNames.add(nm[1]);
-      const sm = line0.match(/^\s*(struct|class|union|enum)\s+([A-Za-z_]\w*)/);
+      const sm = line0.match(/^\s*(struct|class|union|enum)\s+(?:class\s+|struct\s+)?([A-Za-z_]\w*)/);
       if (sm) typeNames.add(sm[2]);
+      // `typedef enum { … } E;` / `typedef struct { … } T;` — the alias after
+      // the closing brace (one raw line, or the `} E;` closer of a multi-line
+      // body): without it `x -> E;` parses as member access `x->E`
+      const tm = node.text.match(/\}\s*([A-Za-z_]\w*)\s*;/);
+      if (tm) typeNames.add(tm[1]);
     }
     if (node.body) (Array.isArray(node.body) ? node.body : [node.body]).forEach(collectTypes);
+    // struct/class/union bodies (aggBody) and bare blocks hold their own stmts
+    if (node.stmts) node.stmts.forEach(collectTypes);
     if (node.then) node.then.forEach(collectTypes);
     if (node.elifs) node.elifs.forEach(collectTypes);
     if (node.els) {
@@ -995,6 +1002,7 @@ function gen(ast) {
       case 'switch':
         return s.body.map((c) => c.body).filter(Boolean);
       case 'block':
+      case 'aggBody':
         return [s.stmts];
       case 'stmt':
         return s.body ? [s.body] : [];

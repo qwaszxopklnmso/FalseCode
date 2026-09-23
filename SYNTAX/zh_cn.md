@@ -102,6 +102,7 @@ Def Main() {
 - 没有 `Return` 的函数自动是 `void`；`Main` 没有 `Return` 时自动补 `return 0;`。
 - 递归、引用 `int& x`、指针参数 `Node* p` 都支持。
 - `template <typename T>` 行、`namespace`、`struct`/`class` 头尾行直接透传，内部行按 False Code 写。
+- `enum` / `enum class` / `typedef enum` 整块原样透传（枚举项是逗号列表、不是语句），`enum` 名与 `typedef` 别名都能当类型用：`c -> Color;`、`x -> TE;`；`enum class` 的值要写 `Shape::SQUARE`。
 
 ---
 

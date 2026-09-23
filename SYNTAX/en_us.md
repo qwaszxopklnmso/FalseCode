@@ -102,6 +102,7 @@ Def Main() {
 - No `Return` → automatically `void`; `Main` without `Return` gets an implicit `return 0;`.
 - Recursion, references (`int& x`), pointer params (`Node* p`) all supported.
 - `template <typename T>` lines, `namespace`, `struct`/`class` header/closing lines pass through verbatim; their bodies are parsed as False Code.
+- An `enum` / `enum class` / `typedef enum` declaration passes through whole (its enumerators are a comma list, not statements), and both the enum name and the `typedef` alias are usable as a type: `c -> Color;`, `x -> TE;`. `enum class` values need qualification (`Shape::SQUARE`).
 
 ---
 

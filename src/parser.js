@@ -391,6 +391,26 @@ function parse(sourceText) {
       }
       return;
     }
+    // C++ enum declarations pass through verbatim: the enumerator list is
+    // comma-separated, NOT a sequence of statements, so the body must not be
+    // parsed as False Code (a same-line `enum X { A, B };` used to become
+    // `{ A, B; }` via inlineCpp, and a multi-line body got a `;` per
+    // enumerator). Covers `enum Color {…};`, `enum class`, `enum X : T {…}`,
+    // anonymous enums and `typedef enum {…} E;`.
+    if (k === 'enum' ||
+        (k === 'typedef' && toks[1] && toks[1].value.toLowerCase() === 'enum')) {
+      stmts.push({ kind: 'raw', text: l.text, indent: l.indent });
+      const braceDelta = (toks2) => toks2.reduce((d, t) =>
+        t.value === '{' ? d + 1 : t.value === '}' ? d - 1 : d, 0);
+      let depth = braceDelta(l.tokens);
+      while (!atEnd() && depth > 0) {
+        const n = peek();
+        pos++;
+        depth += braceDelta(n.tokens);
+        stmts.push({ kind: 'raw', text: n.text, indent: n.indent });
+      }
+      return;
+    }
     const line = { tokens: toks, indent: l.indent, lineNo: l.lineNo };
     // attach a trailing comment to a pushed node (inlineCpp keeps its own tail)
     const push = (node) => {
