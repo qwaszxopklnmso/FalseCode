@@ -1,0 +1,33 @@
+Def Twice(n -> int) -> int {
+	Return n * 2;
+}
+
+Def Add(a -> int, b -> int) -> int {
+	Return a + b;
+}
+
+Def Apply(f -> int(*)(int), x -> int) -> int {
+	Return f(x);
+}
+
+struct Holder {
+	fp -> int(*)(int);
+	Def Set(p -> int(*)(int)) {
+		fp = p;
+	}
+	Def Call(x -> int) -> int {
+		Return fp(x);
+	}
+};
+
+Def Main() {
+	p -> int(*)(int);
+	p = &Twice;
+	Out p(3), " ", Apply(p, 4), Nl;
+	q = &Add -> int(*)(int,int);
+	Out q(2, 3), Nl;
+	h -> Holder;
+	h.Set(&Twice);
+	Out h.Call(5), Nl;
+	Return 0;
+}

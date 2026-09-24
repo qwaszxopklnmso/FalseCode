@@ -1,0 +1,26 @@
+Def Main() {
+	x = 2 -> int;
+	Switch x {
+		Case 1:
+		Case 2:
+		Case 3:
+			Out "low", Nl;
+			Break;
+		Case 4? Then Out "four", Nl;
+		Case 5:
+		Default:
+			Out "other", Nl;
+	}
+	y = 5 -> int;
+	Switch y {
+		Case 5:
+		Default: Out "five-or-other", Nl;
+	}
+	z = 9 -> int;
+	Switch z {
+		Case 9? Then Out "nine", Nl;
+		Default:
+			Out "not nine", Nl;
+	}
+	Return 0;
+}

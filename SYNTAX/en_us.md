@@ -38,6 +38,27 @@ a, b -> int;          // int a, b;
 c, d = 1, 2 -> int;   // int c = 1, d = 2;   (one initializer per name required)
 ```
 
+A declaration may carry C++ modifier prefixes; they are kept and emitted before the type:
+
+```
+static cnt -> int;        // static int cnt;
+constexpr K = 3 -> int;   // constexpr int K = 3;
+static calls = 0 -> int;  // a function-local static
+```
+
+A function-pointer type is written `ReturnType(*)(ParamTypes...)`; the declarator name is inserted into the `(*)`:
+
+```
+p -> int(*)(int);             // int (*p)(int);
+q = &Add -> int(*)(int,int);  // int (*q)(int,int) = &Add;
+```
+
+Explicit constructor initialization `Name = Type(args) -> Type;` also works (yes, the type is written twice):
+
+```
+v = Vec(2, 3) -> Vec;     // Vec v = Vec(2, 3);
+```
+
 > Note: one annotation carries exactly one type; `i, s -> int, string` is rejected.
 
 ### Arrays
@@ -101,6 +122,19 @@ Def Main() {
 
 - No `Return` → automatically `void`; `Main` without `Return` gets an implicit `return 0;`.
 - Recursion, references (`int& x`), pointer params (`Node* p`) all supported.
+- Function-pointer params: `Def Apply(f -> int(*)(int), x -> int) -> int { Return f(x); }`.
+- Modifier prefixes may appear before or after `Def` and are preserved in the generated C++: `virtual Def Speak() -> string {`, `static Def Inc() -> int {`, `Def static Inc() -> int {`, `constexpr Def F()`.
+- **Constructors / destructors**: inside a `struct`/`class` body, `Def ClassName(...)` is a constructor (it emits **no return type**) and `Def ~ClassName()` is a destructor:
+  ```
+  struct Point {
+  	x -> int;
+  	Def Point() { x = 0; }
+  	Def Point(v -> int) { x = v; }
+  	Def ~Point() { }
+  };
+  ```
+- **Operator overloads**: `Def operator<(other -> Node&) -> bool { Return x < other.x; }` (likewise `operator==`, `operator+`, `operator[]`); plain C++ style `bool operator<(const Node& o) { ... }` works too.
+- **Out-of-class member definitions**: `Def Vec::Sum() -> int { Return x + y; }` (multi-token names such as `A::Get` and `~P` are parsed).
 - `template <typename T>` lines, `namespace`, `struct`/`class` header/closing lines pass through verbatim; their bodies are parsed as False Code.
 - An `enum` / `enum class` / `typedef enum` declaration passes through whole (its enumerators are a comma list, not statements), and both the enum name and the `typedef` alias are usable as a type: `c -> Color;`, `x -> TE;`. `enum class` values need qualification (`Shape::SQUARE`).
 
@@ -130,6 +164,40 @@ Else {
 `Case` never takes `{ ... }`: `Case 1? { ... }` is an error — write `Case 1?` with an indented body, or `Case 1? Then SingleStmt;`.
 
 `Switch`: `Switch Value { Case Val: ... Else ... }` — `Else` inside a switch becomes `default:`; `case` labels may sit at the same indent as `switch` (C++ style).
+
+**Fall-through**: a label with no statements of its own falls through, exactly like C++:
+
+```
+Switch x {
+	Case 1:
+	Case 2:
+	Case 3:
+		Out "low", Nl;      // 1, 2 and 3 all land here
+		Break;
+	Case 4: Out "four", Nl;
+	Default:
+		Out "other", Nl;
+}
+```
+
+When a `Case` is immediately followed by another `Case`/`Default` (empty body), only the label is emitted — no `break;` — so control falls into the next branch. A branch that has statements gets an implicit trailing `break;` (writing `Break` yourself is harmless, it just duplicates the `break;`).
+
+---
+
+## 5.5 Exceptions
+
+`try` / `catch` / `throw` are case-insensitive like every other keyword, and the statements inside their `{ }` blocks are parsed as False Code:
+
+```
+Try {
+	If b == 0 Then Throw invalid_argument("zero");
+	Out a / b, Nl;
+} Catch (exception& e) {
+	Out "caught: ", e.what(), Nl;
+} Catch (...) {
+	Out "unknown", Nl;
+}
+```
 
 ---
 

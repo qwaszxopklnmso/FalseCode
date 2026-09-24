@@ -1,0 +1,74 @@
+class Animal {
+public:
+	age -> int;
+	Def Animal() {
+		age = 0;
+	}
+	Def Animal(a -> int) {
+		age = a;
+	}
+	virtual Def Speak() -> string {
+		Return "?";
+	}
+	Def ~Animal() {
+		age = -1;
+	}
+};
+
+class Dog : public Animal {
+public:
+	Def Speak() -> string {
+		Return "woof";
+	}
+};
+
+class Outl {
+public:
+	x -> int;
+	Def Get() -> int;
+};
+Def Outl::Get() -> int {
+	Return x * 10;
+}
+
+struct Counter {
+	static cnt -> int;
+	static Def Inc() -> int {
+		cnt = cnt + 1;
+		Return cnt;
+	}
+};
+int Counter::cnt = 0;
+
+struct Node {
+	x -> int;
+	Def operator<(other -> Node&) -> bool {
+		Return x < other.x;
+	}
+};
+
+constexpr int M = 4;
+
+Def Main() {
+	a -> Animal;
+	b -> Animal;
+	b = Animal(7);
+	Out a.age, " ", b.age, Nl;
+	d -> Dog;
+	d.age = 3;
+	Out d.Speak(), " ", d.age, Nl;
+	o -> Outl;
+	o.x = 4;
+	Out o.Get(), Nl;
+	c1 = Counter::Inc() -> int;
+	c2 = Counter::Inc() -> int;
+	Out c1, " ", c2, " ", Counter::cnt, Nl;
+	p -> Node;
+	q -> Node;
+	p.x = 1;
+	q.x = 2;
+	If p < q Then Out "less", Nl;
+	ar[M] -> int;
+	Out sizeof(ar)/sizeof(ar[0]), Nl;
+	Return 0;
+}

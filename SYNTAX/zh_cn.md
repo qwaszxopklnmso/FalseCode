@@ -38,6 +38,27 @@ a, b -> int;          // int a, b;
 c, d = 1, 2 -> int;   // int c = 1, d = 2;   （初值个数须与变量数一致）
 ```
 
+声明可带 C++ 修饰符前缀，修饰符原样保留并放在类型前面：
+
+```
+static cnt -> int;        // static int cnt;
+constexpr K = 3 -> int;   // constexpr int K = 3;
+static calls = 0 -> int;  // 函数内的 static 局部变量
+```
+
+函数指针类型写成 `返回类型(*)(参数类型...)`，声明符名字会被正确插进 `(*)`：
+
+```
+p -> int(*)(int);             // int (*p)(int);
+q = &Add -> int(*)(int,int);  // int (*q)(int,int) = &Add;
+```
+
+显式构造初始化 `变量 = 类型(参数) -> 类型;` 也支持（注意类型写两遍）：
+
+```
+v = Vec(2, 3) -> Vec;     // Vec v = Vec(2, 3);
+```
+
 > 注意：一个类型注解只能有一种类型，`i, s -> int, string` 不支持（会报错）。
 
 ### 数组
@@ -101,6 +122,19 @@ Def Main() {
 
 - 没有 `Return` 的函数自动是 `void`；`Main` 没有 `Return` 时自动补 `return 0;`。
 - 递归、引用 `int& x`、指针参数 `Node* p` 都支持。
+- 函数指针参数：`Def Apply(f -> int(*)(int), x -> int) -> int { Return f(x); }`。
+- 修饰符前缀写在 `Def` 前后都行，会保留到生成的 C++ 里：`virtual Def Speak() -> string {`、`static Def Inc() -> int {`、`Def static Inc() -> int {`、`constexpr Def F()`。
+- **构造 / 析构函数**：在 `struct`/`class` 体内，`Def 类名(...)` 就是构造函数（自动**不写返回类型**），`Def ~类名()` 是析构函数：
+  ```
+  struct Point {
+  	x -> int;
+  	Def Point() { x = 0; }
+  	Def Point(v -> int) { x = v; }
+  	Def ~Point() { }
+  };
+  ```
+- **运算符重载**：`Def operator<(other -> Node&) -> bool { Return x < other.x; }`（`operator==`、`operator+`、`operator[]` 等同理）；也可以直接写 C++ 风格的 `bool operator<(const Node& o) { ... }`。
+- **类外定义成员函数**：`Def Vec::Sum() -> int { Return x + y; }`（`A::Get`、`~P` 这类多 token 名字都能解析）。
 - `template <typename T>` 行、`namespace`、`struct`/`class` 头尾行直接透传，内部行按 False Code 写。
 - `enum` / `enum class` / `typedef enum` 整块原样透传（枚举项是逗号列表、不是语句），`enum` 名与 `typedef` 别名都能当类型用：`c -> Color;`、`x -> TE;`；`enum class` 的值要写 `Shape::SQUARE`。
 
@@ -130,6 +164,40 @@ Else {
 `Case` 不接 `{ ... }`：`Case 1? { ... }` 会直接报错，请写 `Case 1?` 后缩进，或 `Case 1? Then 单语句;`。
 
 `Switch`：`Switch 值 { Case 值: ... Else ... }`——`Else` 在 switch 里变成 `default:`；`case` 标签可以跟 switch 同缩进（C++ 风格）。
+
+**穿透（fall-through）**：写完标签不给语句就是穿透，和 C++ 一样：
+
+```
+Switch x {
+	Case 1:
+	Case 2:
+	Case 3:
+		Out "low", Nl;      // 1/2/3 都走这里
+		Break;
+	Case 4: Out "four", Nl;
+	Default:
+		Out "other", Nl;
+}
+```
+
+只要 `Case` 后面紧跟下一个 `Case`/`Default`（空体），就只生成标签、不补 `break;`，于是落到下一个分支；写了语句的分支末尾会自动补 `break;`（不用自己写 `Break`，写了也只是重复一个 `break;`，无害）。
+
+---
+
+## 5.5 异常
+
+`try` / `catch` / `throw` 大小写不敏感（和其他关键字一样），`{ }` 块里的内容按 False Code 解析：
+
+```
+Try {
+	If b == 0 Then Throw invalid_argument("zero");
+	Out a / b, Nl;
+} Catch (exception& e) {
+	Out "caught: ", e.what(), Nl;
+} Catch (...) {
+	Out "unknown", Nl;
+}
+```
 
 ---
 

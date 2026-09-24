@@ -29,6 +29,14 @@ function parse(sourceText) {
   const lines = preprocess(sourceText);
   let pos = 0;
   let inSwitch = 0;
+  // name of the struct/class/union currently being parsed ('' outside), so a
+  // `Def Name(...)` inside it can be recognised as a constructor
+  let curAgg = '';
+  // declaration modifiers that may precede a `Def` or a declaration:
+  // `virtual Def Speak() -> string {`, `static cnt -> int;`, `Def static Inc()`.
+  const DECL_MODIFIERS = new Set(['static', 'virtual', 'constexpr', 'consteval',
+    'constinit', 'extern', 'inline', 'mutable', 'thread_local', 'register',
+    'volatile', 'explicit', 'friend', 'const']);
 
   const peek = () => lines[pos];
   const atEnd = () => pos >= lines.length;
@@ -377,6 +385,22 @@ function parse(sourceText) {
       toks = toks.slice(1);
       if (!toks.length) return;
     }
+    // leading declaration modifiers (`static`, `virtual`, `constexpr`, ...)
+    // must not hide a following False Code `Def`: `virtual Def Speak() -> string {`
+    // is a Def with a modifier prefix. The modifiers are re-emitted in front of
+    // the generated C++ signature. `Def static Inc()` keeps its modifiers after
+    // `Def` — that is handled inside parseDef.
+    let defMods = [];
+    {
+      let i = 0;
+      while (i < toks.length && toks[i].type === 'word' &&
+             DECL_MODIFIERS.has(toks[i].value.toLowerCase())) i++;
+      if (i > 0 && i < toks.length && toks[i].type === 'word' &&
+          toks[i].value.toLowerCase() === 'def') {
+        defMods = toks.slice(0, i).map((t) => t.value);
+        toks = toks.slice(i);
+      }
+    }
     const k = toks[0].value.toLowerCase();
     // label line: `fin: Out 1, Nl;` (C++ allows a label and its statement on
     // one line), `public: int x;`, or a bare `fin:`. The label is emitted on
@@ -411,7 +435,7 @@ function parse(sourceText) {
       }
       return;
     }
-    const line = { tokens: toks, indent: l.indent, lineNo: l.lineNo };
+    const line = { tokens: toks, indent: l.indent, lineNo: l.lineNo, mods: defMods };
     // attach a trailing comment to a pushed node (inlineCpp keeps its own tail)
     const push = (node) => {
       if (tail && !node.tail) node.tail = tail;
@@ -487,6 +511,11 @@ function parse(sourceText) {
         // header line passes through verbatim; interior lines are parsed
         // as False Code (C++-style content still passes through as stmts)
         stmts.push({ kind: 'raw', text: l.text, indent: l.indent });
+        // `Def Name(...)` inside the body is a constructor when Name matches
+        // the aggregate — remember it for the whole member list
+        const savedAgg = curAgg;
+        const hw = words(l.tokens);
+        curAgg = hw[1] && hw[1].type === 'word' ? hw[1].value : '';
         // member lines are collected separately so the generator can keep them
         // from deleting the enclosing scope's registry entries (a member named
         // like a global array must not break `g##` outside the struct)
@@ -521,10 +550,15 @@ function parse(sourceText) {
           // header is a C++ block opener — emit it verbatim, then parse its
           // brace-balanced body lines as False Code (so `If … ?` inside an
           // operator body still gets converted).
-          const nk0 = (words(n.tokens)[0] || {}).value || '';
+          // a modifier prefix (`virtual Def Speak()`, `static Def Get()`) must
+          // not hide the False Code keyword behind it
+          let nkIdx = 0;
+          while (nkIdx < n.tokens.length && n.tokens[nkIdx].type === 'word' &&
+                 DECL_MODIFIERS.has(n.tokens[nkIdx].value.toLowerCase())) nkIdx++;
+          const nk1 = ((n.tokens[nkIdx] || {}).value || '').toLowerCase();
           const lastTok = lastOf(words(n.tokens));
           if (lastTok && lastTok.value === '{' &&
-              !['if', 'elif', 'else', 'while', 'for', 'switch', 'case', 'default', 'do', 'def'].includes(nk0.toLowerCase())) {
+              !['if', 'elif', 'else', 'while', 'for', 'switch', 'case', 'default', 'do', 'def'].includes(nk1)) {
             agg.push({ kind: 'raw', text: n.text, indent: n.indent });
             let bd = 1;
             while (!atEnd() && bd > 0) {
@@ -559,6 +593,7 @@ function parse(sourceText) {
           for (let i = start; i < pos; i++) depth += braceDelta(lines[i].tokens);
         }
         stmts.push({ kind: 'aggBody', stmts: agg, indent: l.indent });
+        curAgg = savedAgg;
         return;
       }
       case 'return': push({ kind: 'return', tokens: stripSemi(toks.slice(1)), indent: l.indent }); return;
@@ -1195,7 +1230,21 @@ function parse(sourceText) {
   // ---------------------------- Def ----------------------------------
   function parseDef(l, stmts) {
     let toks = words(l.tokens).slice(1);
-    const name = toks.shift().value;
+    // `Def static Inc() -> int` — modifiers may also follow `Def`
+    const mods = [...(l.mods || [])];
+    while (toks.length && toks[0].type === 'word' &&
+           DECL_MODIFIERS.has(toks[0].value.toLowerCase())) {
+      mods.push(toks.shift().value);
+    }
+    // the name may span several tokens: `A::Get`, `operator<`, `~P`. It ends at
+    // the parameter list `(` (or at `:`/`{`/`;` for the `Def Fn:` style).
+    const nameToks = [];
+    while (toks.length && !['(', ':', '{', ';', '->'].includes(toks[0].value)) {
+      nameToks.push(toks.shift());
+    }
+    const name = nameToks.map((t) => t.value).join('');
+    const isDtor = name.startsWith('~');
+    const isCtor = !isDtor && !!curAgg && name === curAgg;
     const { inner, tail } = parenSplit(toks);
     // depth-aware split: `map<int,int>` / `pair<int,int>` must not split on the
     // comma between template arguments
@@ -1305,7 +1354,7 @@ function parse(sourceText) {
         body = readBlock(l.indent);
       }
     }
-    stmts.push({ kind: 'def', name, params, ret, body, indent: l.indent });
+    stmts.push({ kind: 'def', name, params, ret, body, indent: l.indent, mods, ctor: isCtor, dtor: isDtor });
   }
 
   // ---------------------------- misc ---------------------------------

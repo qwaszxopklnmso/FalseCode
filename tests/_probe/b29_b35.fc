@@ -1,0 +1,140 @@
+class Base {
+public:
+	virtual Def Speak() -> string {
+		Return "base";
+	}
+	virtual Def ~Base() {
+	}
+};
+
+class Derived : public Base {
+public:
+	Def Speak() -> string {
+		Return "derived";
+	}
+};
+
+class Vec {
+public:
+	x -> int;
+	y -> int;
+	Def Vec() {
+		x = 0;
+		y = 0;
+	}
+	Def Vec(a -> int, b -> int) {
+		x = a;
+		y = b;
+	}
+	Def ~Vec() {
+		x = -1;
+	}
+	Def Sum() -> int;
+	static const int N = 5;
+	static int cnt;
+	static Def Bump() -> int {
+		cnt = cnt + 1;
+		Return cnt;
+	}
+};
+Def Vec::Sum() -> int {
+	Return x + y;
+}
+int Vec::cnt = 0;
+
+struct Cmp {
+	v -> int;
+	Def operator<(other -> Cmp&) -> bool {
+		Return v < other.v;
+	}
+	Def operator==(other -> Cmp&) -> bool {
+		Return v == other.v;
+	}
+};
+
+union Val {
+	i -> int;
+	d -> double;
+};
+
+struct Holder {
+	val -> Val;
+	fp -> int(*)(int);
+	Def Set(p -> int(*)(int)) {
+		fp = p;
+	}
+	Def Call(x -> int) -> int {
+		Return fp(x);
+	}
+};
+
+typedef int (*FnT)(int);
+
+constexpr int K = 3;
+
+template<typename T>
+T Max(T a, T b) {
+	Return a > b ? a : b;
+}
+
+Def Twice(n -> int) -> int {
+	Return n * 2;
+}
+
+Def Apply(f -> int(*)(int), x -> int) -> int {
+	Return f(x);
+}
+
+Def Main(argc -> int, argv -> string[]) {
+	p -> int(*)(int);
+	p = &Twice;
+	q = &Twice -> int(*)(int);
+	FnT r = &Twice;
+	Out p(1), q(2), r(3), Apply(p, 4), Nl;
+	h -> Holder;
+	h.Set(&Twice);
+	Out h.Call(5), Nl;
+	h.val.i = 7;
+	Out h.val.i, Nl;
+	dd -> Derived;
+	Out dd.Speak(), Nl;
+	vv -> Vec;
+	vv = Vec(2, 3);
+	ff = Vec() -> Vec;
+	Out vv.Sum(), " ", ff.Sum(), " ", Vec::Bump(), " ", Vec::cnt, Nl;
+	cc -> Cmp;
+	ee -> Cmp;
+	cc.v = 1;
+	ee.v = 1;
+	If cc == ee Then Out "eq", Nl;
+	If cc < ee Then Out "no", Nl; Else Out "not-less", Nl;
+	pr -> pair<int,string>;
+	pr.first = 1;
+	pr.second = "a";
+	Out pr.first, pr.second, Nl;
+	tp -> tuple<int,int>;
+	get<0>(tp) = 4;
+	get<1>(tp) = 5;
+	Out get<0>(tp) + get<1>(tp), Nl;
+	arr[K] -> int;
+	Out sizeof(arr)/sizeof(arr[0]), Nl;
+	Switch argc {
+		Case 0:
+		Case 1:
+			Out "small", Nl;
+			Break;
+		Case 2: Out "two", Nl;
+		Default:
+			Out "big", Nl;
+	}
+	Try {
+		If argc > 100 Then Throw 1;
+		Throw runtime_error("boom");
+	} Catch (int e) {
+		Out e, Nl;
+	} Catch (exception& e) {
+		Out e.what(), Nl;
+	}
+	Out Max(1, 2), Nl;
+	Return 0;
+}

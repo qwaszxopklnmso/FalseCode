@@ -142,7 +142,18 @@ function gen(ast) {
     // filtered `[]`/`*` were dropped from `rest`; if any were present the
     // annotation is clearly a type (`-> node*`), not a member `.field`.
     const bareWord = (eqBefore && rest.length === tokens.slice(i + 1).length);
-    const ambiguous = !braceInit && bareWord && rest.length === 1 && rest[0].type === 'word' &&
+    // `x = p -> node;` is member access — a BARE custom type name after a
+    // top-level `=` is ambiguous. But `x = Vec() -> Vec;` (an explicit
+    // constructor call of a KNOWN type) can only be a declaration, so it must
+    // not be swallowed by that rule.
+    let ctorInit = false;
+    if (eqBefore && rest.length === 1 && typeNames.has(rest[0].value)) {
+      let e = -1;
+      for (let q = 0; q < i; q++) if (tokens[q].value === '=') { e = q; break; }
+      if (e >= 0 && tokens[e + 1] && tokens[e + 1].value === rest[0].value &&
+          tokens[e + 2] && tokens[e + 2].value === '(') ctorInit = true;
+    }
+    const ambiguous = !braceInit && !ctorInit && bareWord && rest.length === 1 && rest[0].type === 'word' &&
       !TYPE_WORD.test(rest[0].value);
     const joined = rest.map((x) => x.value).join(' ');
     if (TYPE_WORD.test(joined)) return true;
@@ -262,6 +273,9 @@ function gen(ast) {
       return `\u0000${strs.length - 1}\u0000`;
     });
     s = convertBraceKeywords(s);
+    // C++ exception keywords are case-insensitive like every other keyword:
+    // `Try {` / `} Catch (…) {` / `If x Then Throw 1;` must emit lowercase C++.
+    s = s.replace(/\b(Try|Catch|Throw)\b/g, (m) => m.toLowerCase());
     s = s.replace(/([A-Za-z_]\w*)\.(add|remove)\s*\(/g, '\u0002$1\u0003$2(');
     s = dropParenArgs(s);
     s = s.replace(/([A-Za-z_]\w*(?:\[[^\]]*\])*|\)|\])\.len\b/g, (m, recv) => {
@@ -547,7 +561,36 @@ function gen(ast) {
       .replace(/\bll\b/gi, 'long long');
   }
 
+  // `int(*)(int,int)` / `void (*)(int&)` — a C++ function-pointer type. The
+  // declarator name must be inserted into the `(*)`: `p -> int(*)(int,int);`
+  // must emit `int (*p)(int,int)`, not `int ( * ) ( int , int ) p;`.
+  function fnPtrParts(typeText) {
+    const m = /^(.*?)\(\s*\*\s*\)\s*(\(.*\))$/.exec((typeText || '').trim());
+    if (!m) return null;
+    return { base: typeCpp(m[1].trim()), args: m[2].trim() };
+  }
+
+  // declaration modifiers that may precede a False Code declaration
+  // (`static cnt -> int;`, `constexpr y = 1 -> int;`): they are kept as a
+  // prefix and stripped before the declarator is parsed, otherwise the first
+  // word would be glued to the name (`staticcnt`).
+  const DECL_MODIFIER_WORDS = new Set(['static', 'virtual', 'constexpr',
+    'consteval', 'constinit', 'extern', 'inline', 'mutable', 'thread_local',
+    'register', 'volatile', 'explicit', 'friend', 'const']);
   function stmtCpp(tokens) {
+    let t = tokens;
+    let mods = '';
+    let i = 0;
+    while (i < t.length && t[i].type === 'word' &&
+           DECL_MODIFIER_WORDS.has(t[i].value.toLowerCase())) i++;
+    if (i > 0 && i < t.length) {
+      mods = t.slice(0, i).map((x) => x.value).join(' ') + ' ';
+      t = t.slice(i);
+    }
+    return mods + stmtCppCore(t);
+  }
+
+  function stmtCppCore(tokens) {
     // a declaration LHS must be exactly one identifier token:
     // `a[] -> T;`, `x = v -> T;`, `p = &y -> int*;`. Anything else
     // (e.g. C-style prefix `int a[][] -> int;`) is an error, not noise.
@@ -688,8 +731,8 @@ function gen(ast) {
         let tDepth = 0, tComma = false;
         for (const tt of typeTok) {
           const tv = tt.value;
-          if (tv === '<' || tv === '<<') tDepth++;
-          else if (tv === '>' || tv === '>>') tDepth--;
+          if (tv === '<' || tv === '<<' || tv === '(' || tv === '[' || tv === '{') tDepth++;
+          else if (tv === '>' || tv === '>>' || tv === ')' || tv === ']' || tv === '}') tDepth--;
           else if (tv === ',' && tDepth === 0) { tComma = true; break; }
         }
         if (tComma) {
@@ -777,6 +820,19 @@ function gen(ast) {
         const baseType = innerType && innerType !== typeText2 && !known(innerType)
           ? typeText2 : (innerType || typeText2);
         return `${'vector<'.repeat(openCount)}${typeCpp(baseType)}${'>'.repeat(openCount)} ${name};`;
+      }
+
+      // function-pointer declaration: `p -> int(*)(int,int);` ->
+      // `int (*p)(int,int);` (also `q = &Add -> int(*)(int,int);`)
+      {
+        const fp = fnPtrParts(typeText2);
+        if (fp) {
+          const nm = nameFrom(declLHS);
+          clearReg(nm);
+          const val = eqIdx >= 0 && eqIdx < annIdx
+            ? ` = ${expNoSemi(tokens.slice(eqIdx + 1, annIdx))}` : '';
+          return `${fp.base} (*${nm})${fp.args}${val};`;
+        }
       }
 
       // open or sized array: `a[] -> T` / `a[N] -> T` / `a[N][M] -> T`
@@ -1325,15 +1381,18 @@ sets: new Set(reg.sets),
         emit(`${p}switch (${expNoSemi(node.cond)}) {${tl}`);
         for (const c of node.body) {
           if (c.kind !== 'case') { genStmt(c, indent + 1); continue; }
-          if (c.val === null || c.val.length === 0) {
-            emit(`${p}\tdefault: {${c.tail ? " " + c.tail : ""}`);
-            genBlock(c.body, indent + 2);
-            emit(`${p}\t}`);
+          const isDefault = c.val === null || c.val.length === 0;
+          const label = isDefault ? 'default' : `case ${expNoSemi(c.val)}`;
+          // an EMPTY case body falls through to the next label: emit the bare
+          // `case 1:` and NO `break;` (C++ `case 1: case 2: …`). Inserting the
+          // implicit break here would silently drop the shared body.
+          if (!c.body || c.body.length === 0) {
+            emit(`${p}\t${label}:${c.tail ? ' ' + c.tail : ''}`);
             continue;
           }
-          emit(`${p}\tcase ${expNoSemi(c.val)}: {${c.tail ? " " + c.tail : ""}`);
+          emit(`${p}\t${label}: {${c.tail ? " " + c.tail : ""}`);
           genBlock(c.body, indent + 2);
-          emit(`${p}\t\tbreak;`);
+          if (!isDefault) emit(`${p}\t\tbreak;`);
           emit(`${p}\t}`);
         }
         emit(`${p}}`);
@@ -1407,10 +1466,17 @@ sets: new Set(reg.sets),
       case 'def': {
         const isMain = node.name.toLowerCase() === 'main';
         const plainType = (s) => typeCpp((s || '').replace(/\[[^\]]*\]/g, '').trim());
+        // declaration modifiers kept from the source: `virtual Def Speak()`,
+        // `Def static Inc()`, `static cnt -> int;`
+        const modsTxt = node.mods && node.mods.length ? node.mods.join(' ') + ' ' : '';
+        // a constructor / destructor takes NO return type in C++
+        const isCtorLike = !!(node.ctor || node.dtor);
         // forward declaration: `def g() -> int;` -> `int g(params);`
         if (node.body === null) {
           const params = node.params.map((pp) => {
             const t = plainType(pp.type) || 'int';
+            const fpd = fnPtrParts(pp.type);
+            if (fpd) return `${fpd.base} (*${pp.name})${fpd.args}`;
             if (pp.nesting) return `${'vector<'.repeat(pp.nesting)}${t}${'>'.repeat(pp.nesting)}& ${pp.name}`;
             if (pp.tpl) return `${t}${/&\s*$/.test(t) ? ' ' : '& '}${pp.name}`;
             if (pp.array) return pp.size ? `${t} ${pp.name}[${pp.size}]` : `vector<${t}>& ${pp.name}`;
@@ -1418,10 +1484,11 @@ sets: new Set(reg.sets),
           }).join(', ');
           // ret is unknown from the declaration alone; use the later
           // definition's inferred return type when available
-          const ret = isMain ? 'int'
-            : (node.ret.length ? retTypeCpp(node.ret)
-              : (defRet.get(node.name) || 'void'));
-          emit(`${p}${ret} ${node.name}(${params});${tl}`);
+          const ret = isCtorLike ? ''
+            : (isMain ? 'int'
+              : (node.ret.length ? retTypeCpp(node.ret)
+                : (defRet.get(node.name) || 'void')));
+          emit(`${p}${modsTxt}${ret ? ret + ' ' : ''}${node.name}(${params});${tl}`);
           return;
         }
         // register params in a fresh scope so they never leak into the
@@ -1439,6 +1506,8 @@ sets: new Set(reg.sets),
           if (pp.name === 'argc') return 'int argc';
           if (pp.name === 'argv') return 'char** argv';
           const t = plainType(pp.type) || 'int';
+          const fpd = fnPtrParts(pp.type);
+          if (fpd) return `${fpd.base} (*${pp.name})${fpd.args}`;
           if (pp.nesting) {
             reg.arrays.set(pp.name, { kind: 'vector', nested: pp.nesting > 1 });
             return `${'vector<'.repeat(pp.nesting)}${t}${'>'.repeat(pp.nesting)}& ${pp.name}`;
@@ -1473,13 +1542,14 @@ sets: new Set(reg.sets),
           if (isMapType(pp.type)) reg.maps.add(pp.name);
           return `${t} ${pp.name}`;
         }).join(', ');
-        const ret = isMain
-          ? 'int'
-          : (node.ret.length
-            ? retTypeCpp(node.ret)
-            : (hasReturnValue(node.body) ? 'int' : 'void'));
+        const ret = isCtorLike ? ''
+          : (isMain
+            ? 'int'
+            : (node.ret.length
+              ? retTypeCpp(node.ret)
+              : (hasReturnValue(node.body) ? 'int' : 'void')));
         const fname = isMain ? 'main' : node.name;
-        emit(`${p}${ret} ${fname}(${params}) {${tl}`);
+        emit(`${p}${modsTxt}${ret ? ret + ' ' : ''}${fname}(${params}) {${tl}`);
         genBlock(node.body, indent + 1);
         reg = savedReg;
         if (isMain && !hasReturn(node.body)) emit(`${p}\treturn 0;`);

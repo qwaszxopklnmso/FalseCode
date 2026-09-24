@@ -1,0 +1,21 @@
+Def Div(a -> int, b -> int) -> int {
+	If b == 0 Then Throw invalid_argument("zero");
+	Return a / b;
+}
+
+Def Main() {
+	Try {
+		Out Div(6, 3), Nl;
+		Out Div(1, 0), Nl;
+	} Catch (exception& e) {
+		Out "caught: ", e.what(), Nl;
+	}
+	Try {
+		Throw 5;
+	} Catch (int e) {
+		Out "int ", e, Nl;
+	} Catch (...) {
+		Out "other", Nl;
+	}
+	Return 0;
+}
